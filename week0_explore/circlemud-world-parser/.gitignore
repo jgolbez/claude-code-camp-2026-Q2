@@ -4,5 +4,8 @@
 # Generated parser output
 _output/
 
+# uv-managed virtualenv (holds a fetched CPython 3.14 toolchain)
+.venv/
+
 .beans/
 .beans.yml

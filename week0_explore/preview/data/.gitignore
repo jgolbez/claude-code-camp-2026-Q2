@@ -1,0 +1,5 @@
+# Parsed CircleMUD JSON, written by bin/convert-world from
+# infrastructure/lib/world (itself uncommitted, seeded from the image).
+# Derived data — regenerate rather than commit.
+/world/*
+!/world/.keep
