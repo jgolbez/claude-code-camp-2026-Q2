@@ -102,8 +102,11 @@ def split_on_vnums(file_text: str) -> Iterator[str]:
     Split the file on lines in the form of a vnum (e.g. '#1234').
 
     This is important because lines within entries can (and do) start with '#'.
+    A vnum sits alone on its line, so anchoring to the line end keeps room names
+    like '#2 First Street~' from being mistaken for a record boundary. Shop files
+    terminate the vnum with '~' ('#3000~'); every other type uses a bare '#3000'.
     """
-    pattern = re.compile(r'^#(\d+)', re.MULTILINE)
+    pattern = re.compile(r'^#(\d+)~?[ \t]*$', re.MULTILINE)
     pieces = pattern.split(file_text)
     for vnum, text in zip(pieces[1::2], pieces[2::2]):
         yield vnum + text
