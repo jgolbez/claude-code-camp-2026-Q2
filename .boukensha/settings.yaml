@@ -1,0 +1,24 @@
+# Boukensha config for playing the MUD as Perry.
+# Point the runtime here with BOUKENSHA_DIR=<repo>/.boukensha
+
+mud:
+  host: localhost
+  port: 4000
+  username: perry
+  password: platypus
+
+tasks:
+  player:
+    provider: anthropic
+    # Start on a fast/cheap model to validate the loop; bump to
+    # claude-sonnet-5 (or claude-opus-4-8) for better in-game decisions.
+    model: claude-haiku-4-5
+
+system:
+  override: true          # use prompts/system.md as the full system prompt
+
+agent:
+  max_iterations: 40      # tool calls allowed per player turn
+  max_output_tokens: 1024
+  max_turn_tokens: 60000
+  compaction_threshold: 0.85

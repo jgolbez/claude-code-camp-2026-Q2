@@ -1,4 +1,5 @@
 require "mud_manager"
+require_relative "mud_text"
 
 module Boukensha
   module Tools
@@ -79,6 +80,15 @@ module Boukensha
           session.drain
           session.send_command(command)
           session.read_until_prompt
+        end
+
+        # Send a command that produces combat output and return a DISTILLED
+        # result: round-by-round attack flavor is collapsed to a count, while
+        # outcomes (death, xp, loot, level, "mortally wounded", flee) and the
+        # final vitals are kept. This is the token-efficiency lever for combat —
+        # the agent decides from "enemy stunned, HP 19", not 20 lines of spam.
+        combat_cmd = lambda do |command|
+          MudText.combat(send_cmd.call(command))
         end
 
         # Return an error string if the session is not open so the agent
@@ -193,7 +203,7 @@ module Boukensha
           description: "Attempt to flee from combat in a random available direction.",
           parameters: {} do
           next guard.call if guard.call
-          send_cmd.call(p.flee)
+          combat_cmd.call(p.flee)
         end
 
         registry.tool "set_position",
@@ -235,7 +245,7 @@ module Boukensha
           } do |target:, style: "kill"|
           next guard.call if guard.call
           begin
-            send_cmd.call(p.attack(style, target))
+            combat_cmd.call(p.attack(style, target))
           rescue ArgumentError => e
             "error: #{e.message}"
           end
@@ -249,7 +259,7 @@ module Boukensha
           } do |skill:, target:|
           next guard.call if guard.call
           begin
-            send_cmd.call(p.skill_strike(skill, target))
+            combat_cmd.call(p.skill_strike(skill, target))
           rescue ArgumentError => e
             "error: #{e.message}"
           end
@@ -463,6 +473,113 @@ module Boukensha
           next guard.call if guard.call
           session.send_command(command)
           session.read_until_quiet
+        end
+
+        # ── Thief & survival ─────────────────────────────────────────────────
+
+        registry.tool "stealth",
+          description: "Move or act unseen — core to a fragile Thief. 'hide' before a backstab so " \
+                       "the first blow lands from concealment; 'sneak' to cross rooms without waking " \
+                       "mobs; 'visible' to drop concealment. Hiding can fail silently — do not assume " \
+                       "it worked; verify before relying on it.",
+          parameters: {
+            mode: { type: "string", description: "Mode: hide | sneak | visible" }
+          } do |mode:|
+          next guard.call if guard.call
+          begin
+            send_cmd.call(p.stealth(mode))
+          rescue ArgumentError => e
+            "error: #{e.message}"
+          end
+        end
+
+        registry.tool "steal",
+          description: "Steal an item or gold from a target with no fight — the Thief's signature skill. " \
+                       "RISKY: on failure the victim notices and may attack, which at low HP is often " \
+                       "fatal. Prefer sleeping or weak marks, and consider them first. Use item 'coins' " \
+                       "(or 'gold') to take money.",
+          parameters: {
+            item:   { type: "string", description: "Item to steal, or 'coins'/'gold' for money" },
+            victim: { type: "string", description: "Name of the mob or player to steal from" }
+          } do |item:, victim:|
+          next guard.call if guard.call
+          begin
+            combat_cmd.call(p.steal(item, victim))
+          rescue ArgumentError => e
+            "error: #{e.message}"
+          end
+        end
+
+        registry.tool "door",
+          description: "Operate a door or container: open/close to pass, lock/unlock with a held key, " \
+                       "or 'pick' a lock (a Thief skill). Give direction when several exits have doors " \
+                       "(e.g. the north door).",
+          parameters: {
+            action:    { type: "string", description: "Action: open | close | lock | unlock | pick" },
+            target:    { type: "string", description: "The door or container (e.g. 'door', 'gate', 'chest')" },
+            direction: { type: "string", description: "Direction of the door (optional): north|east|south|west|up|down" }
+          } do |action:, target:, direction: nil|
+          next guard.call if guard.call
+          begin
+            send_cmd.call(p.door(action, target, direction: direction))
+          rescue ArgumentError => e
+            "error: #{e.message}"
+          end
+        end
+
+        registry.tool "set_wimpy",
+          description: "Set an auto-flee threshold: when your hit points fall below this in combat you " \
+                       "flee automatically. Your single best survival lever at low HP — set it to roughly " \
+                       "a third of your max HP before any fight. Use 0 to turn it off.",
+          parameters: {
+            hp: { type: "integer", description: "HP threshold to auto-flee below (0 disables)" }
+          } do |hp:|
+          next guard.call if guard.call
+          # NOTE: this tbaMUD build wants "toggle wimpy <hp>". The bare "wimpy <hp>"
+          # that MudManager::Primitives.set_wimpy emits returns "Huh!?!" here, so we
+          # send the working form directly.
+          if hp.is_a?(Integer) && hp >= 0
+            send_cmd.call("toggle wimpy #{hp}")
+          else
+            "error: hp must be a non-negative integer"
+          end
+        end
+
+        registry.tool "diagnose",
+          description: "Read a target's remaining health mid-fight (or before one) to decide whether " \
+                       "you are winning or should flee. Omit target to diagnose your current opponent.",
+          parameters: {
+            target: { type: "string", description: "Name of the mob to diagnose (optional)" }
+          } do |target: nil|
+          next guard.call if guard.call
+          begin
+            send_cmd.call(p.diagnose(target))
+          rescue ArgumentError => e
+            "error: #{e.message}"
+          end
+        end
+
+        registry.tool "rent",
+          description: "Rent a room at an inn to persist your character, gear, and location so death " \
+                       "does not cost them. Costs gold per day scaled to what you carry.",
+          parameters: {} do
+          next guard.call if guard.call
+          send_cmd.call(p.rent)
+        end
+
+        registry.tool "bank",
+          description: "Use a bank at a banker NPC: check balance, deposit gold (so death does not drop " \
+                       "it), or withdraw.",
+          parameters: {
+            action: { type: "string",  description: "Action: balance | deposit | withdraw" },
+            amount: { type: "integer", description: "Amount of gold (for deposit/withdraw)" }
+          } do |action:, amount: nil|
+          next guard.call if guard.call
+          begin
+            send_cmd.call(p.bank(action, amount: amount))
+          rescue ArgumentError => e
+            "error: #{e.message}"
+          end
         end
 
         # Auto-connect at startup so the session is ready immediately and the

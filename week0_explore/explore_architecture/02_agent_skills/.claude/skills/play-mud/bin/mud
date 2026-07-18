@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Wrapper: send one command to the play-mud daemon under mise.
+here="$(cd "$(dirname "$0")" && pwd)"
+exec mise exec -- ruby "$here/mud_client.rb" "$@"

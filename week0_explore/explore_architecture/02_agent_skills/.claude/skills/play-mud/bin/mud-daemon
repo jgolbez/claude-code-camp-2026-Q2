@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Wrapper: run the play-mud daemon under mise (the only Ruby available).
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+exec mise exec -- ruby "$here/mud_daemon.rb"
