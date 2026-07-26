@@ -110,6 +110,14 @@ module Boukensha
         remember = lambda do |text, arrived_via: nil|
           note = begin
             world.observe(text, arrived_via: arrived_via)
+            # Slice 4: read the game's own exit destinations (one cheap command,
+            # no LLM tokens) and record named edges — including the way back — so
+            # the agent isn't stranded at a one-way destination.
+            if world.current_id
+              exits_text = send_cmd.call(p.info_self("exits"))
+              world.record_named_edges(world.parse_exits(exits_text))
+            end
+            world.current_memory_line
           rescue StandardError => e
             warn "[boukensha] world_model error: #{e.message}"
             nil

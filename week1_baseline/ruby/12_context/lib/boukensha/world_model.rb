@@ -68,18 +68,20 @@ module Boukensha
 
       if entry
         entry["visits"] += 1
-        status = "known"
       else
         entry = {
           "id"         => (@next_id += 1),
           "name"       => room[:name],
           "exits"      => {},   # direction => neighbour id (nil = unexplored frontier)
+          "exit_names" => {},   # direction => destination name (from the `exits` cmd)
+          "edge_via"   => {},   # direction => how the edge was learned: walked | named
           "visits"     => 1,
           "first_seen" => now
         }
         @rooms[fp] = entry
-        status = "new"
       end
+      entry["exit_names"] ||= {}
+      entry["edge_via"]   ||= {}
 
       # Every exit the room advertises becomes a key; an unwalked one keeps a nil
       # target and is therefore part of the frontier.
@@ -87,18 +89,20 @@ module Boukensha
 
       # Record the directed edge we just traversed: prev --arrived_via--> here.
       # Only on a real transition from a known previous room (slice 2). Directed
-      # on purpose — we never assume the reverse edge until we walk it.
+      # on purpose — we never assume the reverse edge until we walk it. A walked
+      # edge is authoritative: it overrides any earlier `named` guess.
       if arrived_via && prev_fp && prev_fp != fp && (prev = @rooms[prev_fp])
         d = SHORT[arrived_via.to_s.strip.downcase]
-        prev["exits"][d] = entry["id"] if d
+        if d
+          prev["exits"][d]              = entry["id"]
+          (prev["edge_via"] ||= {})[d]  = "walked"
+        end
       end
 
       entry["last_seen"] = now
       @current_fp = fp
       save
-
-      times = entry["visits"] == 1 ? "first visit" : "visited #{entry['visits']}×"
-      %([memory] Room ##{entry['id']} "#{room[:name]}" — #{times} (#{status}). #{exits_summary(entry)})
+      current_memory_line
     end
 
     # Parse raw MUD room text into { name:, description:, exits: [sorted dirs] }.
@@ -133,18 +137,79 @@ module Boukensha
 
     def room_count = @rooms.size
 
-    # Human-readable exit summary: known neighbours as "dir→#id", unwalked exits
-    # as "dir→? (unexplored)", plus a count of how many are still frontier.
+    # The [memory] line for the room the agent is currently in.
+    def current_memory_line
+      return nil unless @current_fp && (entry = @rooms[@current_fp])
+      status = entry["visits"] == 1 ? "new" : "known"
+      times  = entry["visits"] == 1 ? "first visit" : "visited #{entry['visits']}×"
+      %([memory] Room ##{entry['id']} "#{entry['name']}" — #{times} (#{status}). #{exits_summary(entry)})
+    end
+
+    # Human-readable exit summary. A mapped neighbour shows as "dir→#id"; an
+    # unwalked exit whose destination NAME we know (from `exits`) shows as
+    # "dir→? (Name)"; a truly unknown exit shows as "dir→? (unexplored)".
     def exits_summary(entry)
       ex = entry["exits"] || {}
       return "Exits: none." if ex.empty?
+      names = entry["exit_names"] || {}
 
       parts = ex.keys.sort.map do |d|
         tgt = ex[d]
-        tgt ? "#{d}→##{tgt}" : "#{d}→? (unexplored)"
+        if tgt          then "#{d}→##{tgt}"
+        elsif names[d]  then "#{d}→? (#{names[d]})"
+        else                 "#{d}→? (unexplored)"
+        end
       end
       open = ex.values.count(&:nil?)
       "Exits: #{parts.join(', ')}." + (open.positive? ? " [#{open} unexplored]" : "")
+    end
+
+    # Parse `exits` command output into { short_dir => destination_name }.
+    # Lines look like "south - Main Street" / "north - The Bakery".
+    def parse_exits(text)
+      out = {}
+      text.to_s.gsub(ANSI, "").each_line do |line|
+        if line =~ /^\s*(north|south|east|west|up|down)\b\s*[-:]\s*(.+?)\s*$/i
+          d  = SHORT[Regexp.last_match(1).downcase]
+          nm = Regexp.last_match(2).strip
+          out[d] = nm if d && !nm.empty?
+        end
+      end
+      out
+    end
+
+    # Slice 4: record NAMED edges for the current room from the game's own exit
+    # destinations. This reads connectivity rather than *assuming* the reverse
+    # edge exists. A named edge resolves to a known room only on an unambiguous
+    # exact-name match, never overwrites a walked edge, and self-corrects when the
+    # exit is actually traversed (observe then records the true walked edge).
+    def record_named_edges(exits_map)
+      return unless @current_fp && (room = @rooms[@current_fp])
+      room["exit_names"] ||= {}
+      room["edge_via"]   ||= {}
+
+      exits_map.each do |dir, name|
+        next if name.nil? || name =~ /too\s+dark/i
+        room["exits"][dir] = nil unless room["exits"].key?(dir)
+        room["exit_names"][dir] = name
+        next if room["edge_via"][dir] == "walked" # keep authoritative edges
+
+        matches = @rooms.values.select { |r| r["name"].to_s.casecmp?(name) }
+        # An exit whose destination name matches the CURRENT room is almost always
+        # a duplicate-named neighbour (e.g. the "Main Street" corridor), not a real
+        # self-loop — drop the self-match so we don't fabricate one.
+        matches = matches.reject { |r| r["id"] == room["id"] } if name.casecmp?(room["name"].to_s)
+
+        if matches.size == 1
+          room["exits"][dir]    = matches.first["id"]
+          room["edge_via"][dir] = "named"
+        elsif matches.size > 1
+          room["edge_via"][dir] = "ambiguous"      # leave as frontier; resolve on walk
+        else
+          room["edge_via"][dir] = "named-frontier" # know the name, room not yet mapped
+        end
+      end
+      save
     end
 
     # The exploration frontier: every room that still has at least one unwalked
