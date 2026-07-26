@@ -28,6 +28,14 @@ module Boukensha
   class WorldModel
     ANSI = /\e\[[0-9;?]*[ -\/]*[@-~]/.freeze
 
+    # Normalise a movement direction (full word or short form) to its short form,
+    # matching the letters CircleMUD prints in the "[ Exits: ... ]" line.
+    SHORT = {
+      "north" => "n", "south" => "s", "east" => "e", "west" => "w",
+      "up" => "u", "down" => "d",
+      "n" => "n", "s" => "s", "e" => "e", "w" => "w", "u" => "u", "d" => "d"
+    }.freeze
+
     attr_reader :rooms, :current_fp, :path
 
     # Resolve the store path from the boukensha working dir (set by the launcher)
@@ -54,8 +62,9 @@ module Boukensha
       room = parse_room(raw)
       return nil unless room
 
-      fp    = fingerprint(room)
-      entry = @rooms[fp]
+      fp      = fingerprint(room)
+      prev_fp = @current_fp
+      entry   = @rooms[fp]
 
       if entry
         entry["visits"] += 1
@@ -64,7 +73,7 @@ module Boukensha
         entry = {
           "id"         => (@next_id += 1),
           "name"       => room[:name],
-          "exits"      => room[:exits],
+          "exits"      => {},   # direction => neighbour id (nil = unexplored frontier)
           "visits"     => 1,
           "first_seen" => now
         }
@@ -72,13 +81,24 @@ module Boukensha
         status = "new"
       end
 
+      # Every exit the room advertises becomes a key; an unwalked one keeps a nil
+      # target and is therefore part of the frontier.
+      room[:exits].each { |d| entry["exits"][d] = nil unless entry["exits"].key?(d) }
+
+      # Record the directed edge we just traversed: prev --arrived_via--> here.
+      # Only on a real transition from a known previous room (slice 2). Directed
+      # on purpose — we never assume the reverse edge until we walk it.
+      if arrived_via && prev_fp && prev_fp != fp && (prev = @rooms[prev_fp])
+        d = SHORT[arrived_via.to_s.strip.downcase]
+        prev["exits"][d] = entry["id"] if d
+      end
+
       entry["last_seen"] = now
       @current_fp = fp
       save
 
-      exits_str = room[:exits].empty? ? "none" : room[:exits].join(" ")
-      times     = entry["visits"] == 1 ? "first visit" : "visited #{entry['visits']}×"
-      %([memory] Room ##{entry['id']} "#{room[:name]}" — #{times} (#{status}). Exits: #{exits_str}.)
+      times = entry["visits"] == 1 ? "first visit" : "visited #{entry['visits']}×"
+      %([memory] Room ##{entry['id']} "#{room[:name]}" — #{times} (#{status}). #{exits_summary(entry)})
     end
 
     # Parse raw MUD room text into { name:, description:, exits: [sorted dirs] }.
@@ -113,6 +133,26 @@ module Boukensha
 
     def room_count = @rooms.size
 
+    # Human-readable exit summary: known neighbours as "dir→#id", unwalked exits
+    # as "dir→? (unexplored)", plus a count of how many are still frontier.
+    def exits_summary(entry)
+      ex = entry["exits"] || {}
+      return "Exits: none." if ex.empty?
+
+      parts = ex.keys.sort.map do |d|
+        tgt = ex[d]
+        tgt ? "#{d}→##{tgt}" : "#{d}→? (unexplored)"
+      end
+      open = ex.values.count(&:nil?)
+      "Exits: #{parts.join(', ')}." + (open.positive? ? " [#{open} unexplored]" : "")
+    end
+
+    # The exploration frontier: every room that still has at least one unwalked
+    # exit. Slice 3's plan_route uses this when the destination isn't known yet.
+    def frontier
+      @rooms.values.select { |r| (r["exits"] || {}).values.any?(&:nil?) }
+    end
+
     private
 
     def now = Time.now.utc.iso8601
@@ -122,6 +162,11 @@ module Boukensha
 
       data     = JSON.parse(File.read(@path))
       @rooms   = data["rooms"] || {}
+      # Migrate slice-1 stores: exits saved as a plain array of directions become
+      # the slice-2 map { direction => neighbour id | nil }.
+      @rooms.each_value do |r|
+        r["exits"] = r["exits"].to_h { |d| [d, nil] } if r["exits"].is_a?(Array)
+      end
       @next_id = data["next_id"] || @rooms.values.map { |r| r["id"].to_i }.max || 0
     rescue JSON::ParserError, Errno::ENOENT => e
       warn "[boukensha] world_model load failed (#{e.message}); starting empty"

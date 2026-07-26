@@ -139,6 +139,38 @@ drops from *necessary* to *insurance*, deferred until such a room is actually
 encountered. The stable ids are proven enough to build on, so the next step is
 **slice 2** — recording edges on confirmed moves — on top of them.
 
+### Observation 3 — Slice 2: the graph records itself (2026-07-26)
+
+**What we implemented.** Each room's exits changed from a flat list of directions
+to a **map `direction → neighbour id`** (nil = unwalked = frontier). On every
+*confirmed* move, the store writes the directed edge `prev --dir--> here`. Edges
+are directed on purpose — the reverse is never assumed, only recorded when
+actually walked. The `[memory]` line now reports each exit's target, e.g.
+`e→#5, n→#2, s→? (unexplored), w→#4`, plus an unexplored count. A `frontier`
+helper lists every room that still has an untried exit (what slice 3 will steer
+toward when a destination isn't known yet). A load-time migration upgrades any
+slice-1 store in place.
+
+**The result.** Walked an 8-move loop through central Midgaard
+(Temple → Temple Square → Market Square → left/right Main Street → back). All
+**8 edges recorded correctly**, and the **13 remaining exits tracked as
+frontier**. Directedness verified — Temple's `s→#2` and Temple Square's `n→#1`
+were captured as two independent walked edges, never inferred from each other.
+The graph filled in incrementally across revisits (Market Square went
+`w→#4` → `w→#4, e→#5` over its three visits). Verified deterministically, no LLM.
+
+**Known limitation.** An edge is only written when the *previous* room is known
+(current location established), so the very first move of a fresh session — before
+any `look` — records no edge. In practice the agent looks on arrival, so this is
+minor; worth revisiting if it bites.
+
+**Expectation for the next phase.** With a real directed graph and a frontier in
+place, **slice 3 (`plan_route`)** can now run BFS for a shortest known route, and
+fall back to routing toward the nearest frontier for a not-yet-found destination.
+It's also finally worth a **real-LLM run**: the `[memory]` line now carries
+navigational guidance ("south is unexplored"), so we can honestly test whether
+that reduces the re-walking the baseline suffered from.
+
 ## Technical Conclusions
 _To be filled in — reflecting the hypotheses above against what actually
 happened, plus any new uncertainty set aside and next steps._
