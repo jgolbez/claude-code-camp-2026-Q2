@@ -107,9 +107,20 @@ module Boukensha
         # Feed room text to the world-model and, if it recognises a room, append
         # a one-line [memory] note to the tool result. Never lets a memory error
         # break gameplay — the raw text is always returned.
+        # Track the last-seen movement points (V in the vitals prompt) so we can
+        # measure each move's cost and check trip feasibility (slice 5).
+        move_pts = nil
+        parse_v  = lambda do |text|
+          m = MudText.strip_ansi(text.to_s).scan(/(\d+)H\s+(\d+)M\s+(\d+)V/).last
+          m && m[2].to_i
+        end
+
         remember = lambda do |text, arrived_via: nil|
           note = begin
-            world.observe(text, arrived_via: arrived_via)
+            v_after = parse_v.call(text)
+            # Movement cost of this move = points before minus points after.
+            cost = (arrived_via && move_pts && v_after) ? [move_pts - v_after, 0].max : nil
+            world.observe(text, arrived_via: arrived_via, move_cost: cost)
             # Slice 4: read the game's own exit destinations (one cheap command,
             # no LLM tokens) and record named edges — including the way back — so
             # the agent isn't stranded at a one-way destination.
@@ -117,6 +128,7 @@ module Boukensha
               exits_text = send_cmd.call(p.info_self("exits"))
               world.record_named_edges(world.parse_exits(exits_text))
             end
+            move_pts = v_after if v_after
             world.current_memory_line
           rescue StandardError => e
             warn "[boukensha] world_model error: #{e.message}"
@@ -152,6 +164,20 @@ module Boukensha
           end
 
           return "Already at #{label}." if route.empty?
+
+          # Slice 5 pre-flight: if we lack the movement to finish, stop BEFORE
+          # walking and escalate the decision (rest / reroute / abandon) rather
+          # than walking into exhaustion. Affordable trips just proceed silently.
+          if move_pts
+            est = world.route_cost(route)
+            if est[:total] > move_pts
+              gap  = est[:total] - move_pts
+              conf = est[:unknown].positive? ? " (estimate — #{est[:unknown]} of #{est[:steps]} legs not yet costed)" : ""
+              return "Can't complete the trip to #{label} right now: it needs ≈#{est[:total]} movement#{conf}, " \
+                     "you have #{move_pts} (short ≈#{gap}). No moves made. Options: rest to recover " \
+                     "(rest_until movement: #{est[:total]}) if this room is safe, or choose a nearer destination."
+            end
+          end
 
           walked = []
           route.each do |short|
@@ -318,6 +344,42 @@ module Boukensha
           next "Room ##{target} is known but not yet connected to your location." if route.nil?
           next "You're already at #{world.name_for_id(target)} (##{target})." if route.empty?
           "Route to #{world.name_for_id(target)} (##{target}): #{route.join(', ')} — #{route.size} step#{route.size == 1 ? '' : 's'}."
+        end
+
+        registry.tool "rest_until",
+          description: "Recover movement points by resting. Sits and rests to regenerate movement, " \
+                       "polling until you reach the target (or regen stalls), then stands back up. Use " \
+                       "before a trip that travel_to says you can't afford — but only when the room is " \
+                       "safe, since resting spends in-game time.",
+          parameters: {
+            movement: { type: "integer", description: "Target movement points to reach before standing" }
+          } do |movement:|
+          next guard.call if guard.call
+          target = movement.to_i
+          send_cmd.call(p.set_position("rest"))
+          start  = parse_v.call(send_cmd.call(p.info_self("score"))).to_i
+          last   = start
+          stalls = 0
+          # Poll ~15s apart so each wait can span a regen tick (~75s in CircleMUD);
+          # give up only after several consecutive no-gain checks.
+          12.times do
+            break if last >= target
+            sleep 15
+            v = parse_v.call(send_cmd.call(p.info_self("score"))).to_i
+            stalls = v > last ? 0 : stalls + 1
+            last   = v
+            break if stalls >= 6
+          end
+          send_cmd.call(p.set_position("stand"))
+          move_pts = last
+          if last >= target
+            "Rested to #{last} movement points. Standing, ready to travel."
+          elsif last > start
+            "Rested to #{last} movement points (target #{target} not fully reached; regen is slow). Standing."
+          else
+            "No movement recovered (now #{last}). Regen may be blocked — check hunger/thirst (eat/drink) " \
+            "or the room may be interrupting rest. Standing."
+          end
         end
 
         registry.tool "flee",

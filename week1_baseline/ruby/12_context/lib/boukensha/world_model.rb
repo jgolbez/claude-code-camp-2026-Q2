@@ -58,7 +58,7 @@ module Boukensha
     # item) — in which case the caller appends nothing and nothing is recorded.
     #
     # arrived_via is accepted now but unused until slice 2 (edge recording).
-    def observe(raw, arrived_via: nil)
+    def observe(raw, arrived_via: nil, move_cost: nil)
       room = parse_room(raw)
       return nil unless room
 
@@ -75,6 +75,7 @@ module Boukensha
           "exits"      => {},   # direction => neighbour id (nil = unexplored frontier)
           "exit_names" => {},   # direction => destination name (from the `exits` cmd)
           "edge_via"   => {},   # direction => how the edge was learned: walked | named
+          "edge_cost"  => {},   # direction => observed movement-point cost (slice 5)
           "visits"     => 1,
           "first_seen" => now
         }
@@ -82,6 +83,7 @@ module Boukensha
       end
       entry["exit_names"] ||= {}
       entry["edge_via"]   ||= {}
+      entry["edge_cost"]  ||= {}
 
       # Every exit the room advertises becomes a key; an unwalked one keeps a nil
       # target and is therefore part of the frontier.
@@ -96,6 +98,13 @@ module Boukensha
         if d
           prev["exits"][d]              = entry["id"]
           (prev["edge_via"] ||= {})[d]  = "walked"
+          # Slice 5: record the movement cost of this edge. Keep the largest
+          # observed drop — tick regen only makes a drop look smaller, so the max
+          # is the safe (conservative) estimate of the true cost.
+          if move_cost && move_cost.positive?
+            ec = (prev["edge_cost"] ||= {})
+            ec[d] = [ec[d].to_i, move_cost].max
+          end
         end
       end
 
@@ -278,6 +287,35 @@ module Boukensha
         end
       end
       nil
+    end
+
+    # Estimate a route's total movement-point cost by summing per-edge costs
+    # along it. Unknown-cost edges fall back to `default` and are counted, so the
+    # caller can see how confident the estimate is. Returns
+    # { total:, unknown:, steps: }.
+    def route_cost(dirs, from_fp: @current_fp, default: 1)
+      return { total: 0, unknown: 0, steps: 0 } if dirs.nil? || dirs.empty?
+
+      fp = from_fp
+      total = 0
+      unknown = 0
+      steps = 0
+      dirs.each do |d|
+        room = fp && @rooms[fp]
+        break unless room
+        c = (room["edge_cost"] || {})[d]
+        if c.nil? || c <= 0
+          unknown += 1
+          total   += default
+        else
+          total += c
+        end
+        steps += 1
+        nid = (room["exits"] || {})[d]
+        fp  = nid ? fp_for_id(nid) : nil
+        break if fp.nil?
+      end
+      { total: total, unknown: unknown, steps: steps }
     end
 
     # BFS to the nearest room that still has an unexplored exit. Returns
