@@ -15,7 +15,8 @@
 | 4 — Connectivity from `exits` | ✅ | Named edges incl. the way back; no longer stranded one-way |
 | 5 — Movement economy | ✅ built\* | Move-cost graph + shortfall escalation (live rest/regen pending) |
 | 6 — Survival / upkeep | ✅ built\* | Text-triggered eat/drink reflex + tagged-source escalation (auto-consume live-pending) |
-| 7 — Steer + explore + distill | 🔜 candidate | An `explore` tool, system-prompt nav policy, and room-text distillation so the model uses the tools cheaply |
+| 7a/7b — `explore` tool + nav policy | ✅ done (Obs 9) | First-class `explore` (steps *through* a frontier exit) + a `prompts/system.md` policy for which movement tool to use |
+| 7c — distill room text | 🔜 next | Terse room summary + `[memory]` instead of full ANSI dumps (the ~7K-tok/iter that capped Obs 8) |
 
 ## Technical Goal
 Make **navigation reliable** — reach an intended destination without re-walking or
@@ -292,6 +293,47 @@ first session log in log_viz.
   manual `move` chains); (c) **distill room text** — feed a terse summary + the
   `[memory]` line instead of the full description, so the budget lasts far longer.
   Levers (a)+(b) make it *use* the tools; (c) makes each step *cheap*.
+
+### Obs 9 — Slice 7a/7b: `explore` tool + navigation policy (2026-07-26)
+
+Acting on Obs 8's two levers that make the model *use* the tools. Distillation
+(7c, the *cheapness* lever) is deferred to its own pass.
+
+- **Predicted (before building):** the reason the LLM hand-stepped with `move`
+  toward an unmapped goal is a *missing capability*, not bad judgement —
+  `travel_to` only walks KNOWN ground, so nothing steps *through* a frontier exit.
+  Adding a first-class `explore` (walk to the nearest unwalked exit, then step
+  through it) plus a system-prompt rule for *which* tool to use for *what* should
+  eliminate the manual `move` chains.
+- **Built (7a):** `explore` tool. Reuses a new shared `walk_route` helper
+  (extracted from `travel_to`, so both share combat/blocked interrupts and keep
+  `move_pts` current per step). Flow: `nearest_frontier_route` → movement
+  pre-flight (need = route + 1 step, escalate a shortfall) → walk the known leg →
+  at the frontier, pick an unexplored dir (new `WorldModel#unexplored_dirs`,
+  which prefers exits whose destination *name* is already known) → step through
+  with the full `remember` treatment (records the walked edge + named neighbours +
+  runs upkeep). One frontier step per call; the model calls it repeatedly to search.
+- **Built (7b):** a **Getting around** section in `prompts/system.md` (the prompt
+  was `override: true` but had *no* movement guidance at all — the real root cause
+  of the hand-walking). States the policy plainly: visited → `travel_to`; not
+  found yet → `explore`; peek → `plan_route`; raw `move` is a last-resort single
+  step, never a chain.
+- **Result (deterministic live tests, no LLM):**
+  - `explore` ×3 from Wall Road discovered **three genuinely new rooms** in three
+    calls (#10 Poor Alley → #11 Eastern End → #12 Common Square), each mapped with
+    named edges; it correctly took the *named* frontier exit first each time, and
+    #12 auto-linked north to the already-known Market Square (#4).
+  - `unexplored_dirs` unit test passes (walked exits excluded; named exit ordered
+    first).
+  - Regression: refactored `travel_to` still plans + walks a **5-step** route
+    (Common Square → Wall Road) in one call. `walk_route` refactor is clean.
+- **Learned:** the capability gap was exactly the blocker — with `explore` present,
+  purposeful map-growth is now a single cheap tool call instead of an LLM
+  `move`-chain. The prompt policy is what tells the model to reach for it.
+- **Next:** (7c) **distill room text** — the remaining lever, and now the top one:
+  the ~7K-tokens/iteration full-ANSI room dumps are what capped Obs 8. Feed a terse
+  summary + the `[memory]` line instead. Then re-run the exact week-1 task under the
+  LLM (Obs 10) to confirm it now reaches the guild within budget.
 
 ## Technical Conclusions
 _To be filled in at week's end — hypotheses vs. outcomes, new uncertainties set

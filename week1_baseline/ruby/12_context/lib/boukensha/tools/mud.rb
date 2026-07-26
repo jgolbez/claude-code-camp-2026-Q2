@@ -218,6 +218,31 @@ module Boukensha
         combat_re  = /\b(?:hits?|bashes?|bites?|claws?|attacks?|strikes?|slashes?|pierces?|crushes?|pounds?|mauls?|smites?)\s+you\b|\byou\s+are\s+attacked\b|\byou\s+have\s+been\s+(?:killed|attacked)\b/i
         blocked_re = /\b(?:cannot\s+go\s+that\s+way|the\s+door\s+is\s+closed|it\s+seems\s+to\s+be\s+closed|isn'?t\s+open)\b/i
 
+        # Walk a known route one room at a time, feeding each new room to the
+        # world-model and keeping move_pts current. Returns [walked_dirs, interrupt]
+        # — interrupt is nil on a clean finish, else a message saying why we
+        # stopped (blocked exit / combat). Shared by travel_to and explore.
+        walk_route = lambda do |route|
+          walked = []
+          route.each do |short|
+            dir    = full_dir[short] || short
+            result = send_cmd.call(p.move(dir))
+            world.observe(result, arrived_via: dir)
+            body   = MudText.strip_ansi(result).strip
+
+            if world.parse_room(result).nil? || body =~ blocked_re
+              return [walked, "Stopped: move #{dir} was blocked after #{walked.empty? ? 'no moves' : walked.join(' → ')}.\n#{body}"]
+            end
+            if body =~ combat_re
+              return [walked, "Stopped en route — COMBAT at room ##{world.current_id} after #{walked.join(' → ')}. Your call:\n#{body}"]
+            end
+            v = parse_v.call(result)
+            move_pts = v if v
+            walked << dir
+          end
+          [walked, nil]
+        end
+
         travel = lambda do |destination|
           dest = destination.to_s.strip
           return "error: no destination given" if dest.empty?
@@ -251,27 +276,58 @@ module Boukensha
             end
           end
 
-          walked = []
-          route.each do |short|
-            dir    = full_dir[short] || short
-            result = send_cmd.call(p.move(dir))
-            world.observe(result, arrived_via: dir)
-            body   = MudText.strip_ansi(result).strip
-
-            if world.parse_room(result).nil? || body =~ blocked_re
-              return "Stopped: move #{dir} was blocked after #{walked.empty? ? 'no moves' : walked.join(' → ')}.\n#{body}"
-            end
-            if body =~ combat_re
-              return "Stopped en route — COMBAT at room ##{world.current_id} after #{walked.join(' → ')}. Your call:\n#{body}"
-            end
-            walked << dir
-          end
+          walked, interrupt = walk_route.call(route)
+          return interrupt if interrupt
 
           arrived = world.current_id
           if target && arrived != target
             return "Walked #{walked.join(' → ')} but ended at room ##{arrived}, not #{label} — the map may be stale. Re-look and replan."
           end
           "Arrived at #{label} via #{walked.join(' → ')} (#{walked.size} room#{walked.size == 1 ? '' : 's'}). No decisions needed en route."
+        end
+
+        # First-class exploration: walk to the nearest room with an unwalked exit,
+        # then STEP THROUGH it into territory we've never seen. travel_to only
+        # covers KNOWN ground; this is what actually grows the map. The final step
+        # gets the full arrival treatment (remember: records the edge + named
+        # neighbours + runs upkeep) so the new room lands as richly mapped as
+        # possible. Stops on a decision point or when nothing is left to explore.
+        explore = lambda do
+          fr = world.nearest_frontier_route
+          return "Nothing left to explore — every exit you've seen has been walked. Use 'look' or a single 'move' to reach a genuinely new area." if fr.nil?
+          route, fid = fr
+
+          # Pre-flight: need enough movement to reach the frontier AND take the
+          # step through it. Escalate a shortfall rather than walking into it.
+          if move_pts
+            est  = world.route_cost(route)
+            need = est[:total] + 1
+            if need > move_pts
+              return "Can't explore right now: reaching the nearest unexplored area (room ##{fid}) and stepping in needs ≈#{need} movement, you have #{move_pts}. No moves made. rest_until movement: #{need} if this room is safe, or handle food/water first."
+            end
+          end
+
+          walked, interrupt = walk_route.call(route)
+          return interrupt if interrupt
+
+          dirs = world.unexplored_dirs
+          return "Reached room ##{world.current_id} but it has no unexplored exits after all — the map already covers its neighbours. Call explore again for the next frontier." if dirs.empty?
+
+          short  = dirs.first
+          dir    = full_dir[short] || short
+          before = world.current_id
+
+          result   = send_cmd.call(p.move(dir))
+          enriched = remember.call(result, arrived_via: dir)
+          body     = MudText.strip_ansi(result).strip
+
+          if world.parse_room(result).nil? || body =~ blocked_re
+            return "Explored #{dir} from room ##{before} but the exit was blocked:\n#{body}"
+          end
+
+          prefix = walked.empty? ? "" : "Walked #{walked.join(' → ')} to the frontier, then "
+          tail   = body =~ combat_re ? " — COMBAT, your call" : ""
+          "#{prefix}stepped #{dir} into new territory#{tail} (now room ##{world.current_id}).\n#{enriched}"
         end
 
         # ── Connection ─────────────────────────────────────────────────────
@@ -396,6 +452,19 @@ module Boukensha
           } do |destination:|
           next guard.call if guard.call
           travel.call(destination)
+        end
+
+        registry.tool "explore",
+          description: "Discover NEW rooms. Walks to the nearest place with an unmapped exit and steps " \
+                       "THROUGH it into territory you have not seen yet — the one thing travel_to cannot do " \
+                       "(travel_to only moves over rooms you've already visited). Use this whenever your goal " \
+                       "is somewhere you have NOT found yet (a guild, a shop you've never reached): it expands " \
+                       "the map one frontier step per call, so call it repeatedly to search. It stops and hands " \
+                       "control back on a decision point (combat, a blocked exit) or when there's nothing left " \
+                       "to explore. Always prefer this over chaining manual move calls to search.",
+          parameters: {} do
+          next guard.call if guard.call
+          explore.call
         end
 
         registry.tool "plan_route",

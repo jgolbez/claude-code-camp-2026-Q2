@@ -240,6 +240,19 @@ module Boukensha
     # ── Slice 3: pathfinding ────────────────────────────────────────────────
 
     def rooms_with_resource(kind) = @rooms.values.select { |r| (r["resource"] || []).include?(kind) }
+
+    # Directions out of a room whose exit is advertised but not yet WALKED — the
+    # frontier legs `explore` can step through to map new territory. Sorted for a
+    # deterministic choice, and exits whose destination NAME is already known
+    # (from the `exits` command) come first so exploration heads toward real,
+    # named rooms before blind ones.
+    def unexplored_dirs(from_fp: @current_fp)
+      room = from_fp && @rooms[from_fp]
+      return [] unless room
+      names = room["exit_names"] || {}
+      (room["exits"] || {}).select { |_d, tid| tid.nil? }.keys
+                           .sort_by { |d| [names[d] ? 0 : 1, d] }
+    end
     def room_by_id(id) = @rooms.values.find { |r| r["id"] == id }
     def name_for_id(id) = room_by_id(id)&.dig("name")
     def fp_for_id(id)

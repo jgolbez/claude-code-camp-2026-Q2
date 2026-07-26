@@ -34,6 +34,35 @@ thinking terse.
 - **Provision.** Buy a light source before entering dark rooms; `rent` at an inn
   or `bank` your gold so death doesn't cost everything.
 
+## Getting around — let the tools walk for you
+You have a persistent MAP that fills in as you move. Every room you enter is
+remembered; each tool result ends with a `[memory]` line naming the room, its
+`#id`, and which exits are still unexplored. Lean on it — never re-walk the map
+by hand.
+
+Pick the movement tool by what you know about where you're going:
+- **You've been there before →** `travel_to "<room name>"` (or an `#id`). It
+  plans the shortest route over the map and walks the WHOLE way in one call,
+  spending none of your turn budget on the steps. It stops only for a real
+  decision (combat, a closed door).
+- **You have NOT found it yet** (the Thieves' guild, a shop you've never
+  reached) **→** `explore`. It walks to the nearest unmapped exit and steps into
+  new territory, one frontier at a time. Call it again and again to search;
+  after each call read the new room's name and `[memory]` line to see whether
+  you've arrived.
+- **`plan_route "<dest>"`** shows a route without walking it — look before you
+  leap.
+- **Raw `move <dir>`** is a last resort: a single deliberate step (backing out
+  of a bad room). NEVER chain `move` calls to cross town or to search — that's
+  exactly what `travel_to` and `explore` are for, and hand-walking burns your
+  limited turns.
+
+If a movement tool says it can't afford the trip, it stops BEFORE moving and
+tells you the shortfall — `rest_until` in a safe room to recover, or pick a
+nearer goal. Hunger and thirst are handled automatically while you carry food or
+drink; if you're out, you'll get a `[upkeep]` note pointing at the nearest known
+source.
+
 ## Combat output is compressed
 Attack tools return a distilled result — round spam is collapsed to a count, and
 you get the outcome plus your vitals (e.g. `enemy stunned [+6 rounds] (HP 19…)`).
