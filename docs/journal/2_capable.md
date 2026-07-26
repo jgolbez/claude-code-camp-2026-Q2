@@ -15,6 +15,7 @@
 | 4 — Connectivity from `exits` | ✅ | Named edges incl. the way back; no longer stranded one-way |
 | 5 — Movement economy | ✅ built\* | Move-cost graph + shortfall escalation (live rest/regen pending) |
 | 6 — Survival / upkeep | ✅ built\* | Text-triggered eat/drink reflex + tagged-source escalation (auto-consume live-pending) |
+| 7 — Steer + explore + distill | 🔜 candidate | An `explore` tool, system-prompt nav policy, and room-text distillation so the model uses the tools cheaply |
 
 ## Technical Goal
 Make **navigation reliable** — reach an intended destination without re-walking or
@@ -253,6 +254,44 @@ pathfinding out of the model, and navigation becomes reliable. Supporting:
 - **Next:** tag more sources as Perry explores; optionally auto-drink when standing
   at a tagged water source (currently escalates); the starvation deadlock and
   buying-food-with-gold stay LLM-reasoning cases, as pre-registered.
+
+### Obs 8 — Real-LLM run: the week-1 task, retested (2026-07-26)
+
+The test we deferred all along: the **exact** week-1 task ("find the thieves'
+guild and train a skill"), Haiku in the loop, from the Temple (rested, fed,
+watered). First run to exercise the model + the full navigation stack, and the
+first session log in log_viz.
+
+- **Result — failed the task, but *failed far better* than week 1.** It did not
+  find the guild or train, but:
+
+  | | Week 1 (baseline) | Week 2 (this run) |
+  |---|---|---|
+  | Moves | `w,w,s,s,e,e,s,n` — **circling** | `down,s,w,w,w,s,s` — coherent, **no re-walking** |
+  | Ended on | 40-iteration cap, aimless | **token cap (69.6K) at 10 iterations**, with a plan |
+  | Memory | none | **7 `[memory]` notes**; never re-entered a room |
+  | Close | wandered | reasoned to *"go to the Poor Alley — that's where a guild hides"* |
+
+  The circling is **gone**. It explored purposefully, remembered where it had
+  been, and stopped with a real hypothesis. It ran out of **budget**, not sense —
+  with more tokens it would likely have reached the guild.
+
+- **Gaps this exposed.** (1) It **never used `travel_to`/`plan_route`** — for an
+  *unmapped* target it hand-stepped with `move`. Root cause: `travel_to`'s frontier
+  fallback routes *to* a frontier room but never steps *through* an unexplored
+  exit, so there is **no first-class explore action**; manual `move` is the only
+  thing that advances into the unknown. (2) **Token cost is high** (~7K/iteration)
+  because the full ANSI room description is re-sent every turn — that's *why* it hit
+  the cap mid-exploration.
+
+- **Next → slice 7 (direct the model to use the tooling):** (a) add an **`explore`
+  tool** — the exploration analog of `travel_to`: step through the nearest
+  unexplored exit and keep going a few rooms, so a whole exploration leg is one
+  cheap call instead of many LLM turns; (b) **steer via the system prompt** — a
+  short navigation policy (travel_to for known, explore for finding new, avoid
+  manual `move` chains); (c) **distill room text** — feed a terse summary + the
+  `[memory]` line instead of the full description, so the budget lasts far longer.
+  Levers (a)+(b) make it *use* the tools; (c) makes each step *cheap*.
 
 ## Technical Conclusions
 _To be filled in at week's end — hypotheses vs. outcomes, new uncertainties set
