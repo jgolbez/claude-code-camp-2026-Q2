@@ -1,5 +1,6 @@
 require "mud_manager"
 require_relative "mud_text"
+require_relative "../world_model"
 
 module Boukensha
   module Tools
@@ -69,6 +70,10 @@ module Boukensha
         session = MudManager::Session.new(host: host, port: port)
         p       = MudManager::Primitives
 
+        # Slice 1 world-model: recognises rooms and counts visits. Shared by the
+        # movement/perception tools via closure, same as the session.
+        world = WorldModel.new
+
         # Send a primitive command and return the MUD's response text.
         # Raises if the session is not open.
         #
@@ -97,6 +102,19 @@ module Boukensha
           unless session.open?
             "error: not connected — call mud_connect first"
           end
+        end
+
+        # Feed room text to the world-model and, if it recognises a room, append
+        # a one-line [memory] note to the tool result. Never lets a memory error
+        # break gameplay — the raw text is always returned.
+        remember = lambda do |text, arrived_via: nil|
+          note = begin
+            world.observe(text, arrived_via: arrived_via)
+          rescue StandardError => e
+            warn "[boukensha] world_model error: #{e.message}"
+            nil
+          end
+          note ? "#{text}\n#{note}" : text
         end
 
         # ── Connection ─────────────────────────────────────────────────────
@@ -150,7 +168,14 @@ module Boukensha
           } do |target: nil, preposition: nil|
           next guard.call if guard.call
           begin
-            send_cmd.call(p.look(target: target, preposition: preposition))
+            result = send_cmd.call(p.look(target: target, preposition: preposition))
+            # Only a bare look describes the room you're actually in; looking at a
+            # target or peeking a direction must not count as a visit.
+            if target.nil? && preposition.nil?
+              remember.call(result)
+            else
+              result
+            end
           rescue ArgumentError => e
             "error: #{e.message}"
           end
@@ -193,7 +218,8 @@ module Boukensha
           } do |direction:|
           next guard.call if guard.call
           begin
-            send_cmd.call(p.move(direction))
+            result = send_cmd.call(p.move(direction))
+            remember.call(result, arrived_via: direction)
           rescue ArgumentError => e
             "error: #{e.message}"
           end

@@ -8,3 +8,6 @@
 # Boukensha runtime session logs (play-test transcripts, not source)
 .boukensha/sessions/*
 !.boukensha/sessions/.keep
+
+# Boukensha runtime world-model memory (rebuilt as the agent explores, not source)
+.boukensha/world.json
