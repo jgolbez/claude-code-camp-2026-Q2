@@ -14,7 +14,7 @@
 | 3 — `plan_route` / `travel_to` | ✅ | One-call deterministic travel; **reached the Bakery** |
 | 4 — Connectivity from `exits` | ✅ | Named edges incl. the way back; no longer stranded one-way |
 | 5 — Movement economy | ✅ built\* | Move-cost graph + shortfall escalation (live rest/regen pending) |
-| 6 — Survival / upkeep | 🔜 candidate | Keep Perry fed/watered/healed so stats regen; escalate when supplies missing |
+| 6 — Survival / upkeep | 🚧 planned | Text-triggered eat/drink reflex; escalate to LLM when supplies are missing |
 
 ## Technical Goal
 Make **navigation reliable** — reach an intended destination without re-walking or
@@ -186,6 +186,52 @@ pathfinding out of the model, and navigation becomes reliable. Supporting:
   supplies are missing (buy/find — needs food-source knowledge in the world-model).
   Same escalation pattern; feeds the shared status the store already owes combat
   and planning.
+
+### Obs 7 — Slice 6: survival / upkeep (predicted, before building, 2026-07-26)
+
+- **The problem.** Hunger/thirst throttle *all* regen (HP, mana, movement), so a
+  starving Perry can't recover movement and everything downstream stalls — the
+  exhaustion that blocked slice 5's live test was really an **upkeep failure**, not
+  a navigation one. Upkeep is a *foundation* beneath navigation, but architecturally
+  it's a **peer capability that composes navigation, not a subset**: *sensing*
+  condition and *consuming* are their own thing; only *acquiring* supplies when
+  empty is a navigation query. All of it reads/writes the one shared world-model
+  (status fields + resource-source tags), same as combat and planning will.
+- **The approach (predicted), in two layers:**
+  - *Reflex — deterministic, ~99% of cases:* watch tool-result text for
+    **"You are hungry" / "You are thirsty"** (the MUD *pushes* these each tick, so
+    we scan the stream we already read — no `score` polling) and `eat`/`drink` one
+    held item in response. Self-correcting: if still not sated, the next tick
+    re-fires. Zero tokens.
+  - *Escalate-with-suggestion — the ~1%:* when there's nothing to consume, hand the
+    LLM a **pre-solved** option — nearest known source (tag the **Bakery = food** and
+    **Temple fountain = water** as fixed world-model landmarks) + route +
+    affordability (reusing the slice-5 movement pre-flight) — and let it decide.
+    Same escalation shape as the movement shortfall.
+- **Mechanism decision.** A **hook/trigger** — *not* an LLM tool (the model would
+  forget and waste tokens) and *not* a wall-clock cron (the agent is turn-based).
+  Start by **piggybacking the existing move/look tool seam** (no agent-loop surgery,
+  matches `[memory]`/`exits`); graduate to a **generic lifecycle-hook registry** in
+  the agent loop once a *second* automatic behaviour wants a "before every turn"
+  slot (upkeep + room-auto-survey + HP-based auto-flee).
+- **Assumptions.** The MUD reliably emits the hunger/thirst text each tick while
+  in-state; eating one item per trigger + re-fire avoids over-eating; the Bakery and
+  Temple fountain are stable Midgaard sources; food is `eat <item>`, but **drink
+  needs a filled container or a fountain**.
+- **Future problems to solve (flagged now, not this slice):**
+  - *Drink needs a container/fountain* — the reflex only covers "have a filled drink
+    container"; an empty-handed thirst is already the acquire case.
+  - *Starvation deadlock* — hungry → no movement regen → may not afford the trip to
+    food. A real survival crisis (beg/gossip for help, find a closer source, or
+    accept a death-respawn at the Temple) that needs reasoning — which is exactly why
+    the empty case **escalates** rather than auto-walking.
+  - *Buying food costs gold* — shop interaction + a gold check.
+  - *Safety en route*; being *far from Midgaard* (sources distant/unknown);
+    *deduping* the escalation so it doesn't nag every tick.
+- **Will test.** Trigger hunger/thirst; confirm the reflex eats/drinks from
+  inventory silently; confirm that with an empty inventory it escalates a concrete
+  suggestion (source + route + affordability) instead of acting blindly.
+- **Built / Result:** _to fill after building._
 
 ## Technical Conclusions
 _To be filled in at week's end — hypotheses vs. outcomes, new uncertainties set
