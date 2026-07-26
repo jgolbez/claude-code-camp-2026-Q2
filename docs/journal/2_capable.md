@@ -13,7 +13,8 @@
 | 2 — Record the graph | ✅ | Directed edges on confirmed moves; frontier tracked |
 | 3 — `plan_route` / `travel_to` | ✅ | One-call deterministic travel; **reached the Bakery** |
 | 4 — Connectivity from `exits` | ✅ | Named edges incl. the way back; no longer stranded one-way |
-| 5 — Movement economy | 🔜 candidate | Weight the graph by move cost; check trip feasibility |
+| 5 — Movement economy | ✅ built\* | Move-cost graph + shortfall escalation (live rest/regen pending) |
+| 6 — Survival / upkeep | 🔜 candidate | Keep Perry fed/watered/healed so stats regen; escalate when supplies missing |
 
 ## Technical Goal
 Make **navigation reliable** — reach an intended destination without re-walking or
@@ -136,6 +137,55 @@ pathfinding out of the model, and navigation becomes reliable. Supporting:
   type), weight the graph, and compare a route's total against current movement so
   `plan_route`/`travel_to` can say "≈N needed, you have M — rest first". Upgrades
   BFS → Dijkstra when cheapest ≠ shortest; matters for combat/planning too.
+
+### Obs 6 — Slice 5: movement economy (2026-07-26)
+- **Predicted (before building):** split the responsibility — **tooling owns the
+  facts and mechanics; the LLM owns policy when short.**
+  - *Deterministic tooling:* measure each move's cost (`V`-before − `V`-after),
+    store per edge; estimate a route's total cost; feasibility check (cost vs
+    current `V`); execute `rest_until(V ≥ N)` and (later) partial travel.
+  - *LLM judgment:* when a trip is unaffordable, decide **rest / go-partway-then-
+    rest / reroute-cheaper / abandon** — this needs safety, urgency and
+    alternatives the tool doesn't have.
+  - *Escalation rule (mirrors the combat interrupt):* affordable → `travel_to`
+    walks silently, no LLM; short → the **pre-flight stops before wasting a move**
+    and returns the facts + options for the model to choose, then deterministic
+    tools execute the choice. **Decision: always escalate shortfalls to the LLM;
+    never silently auto-rest** (resting spends in-game time and can be unsafe).
+    Safe-room auto-rest is deferred until we track room threat.
+- **Assumptions:** move cost = `V` drop (sector-driven small integers; central
+  Midgaard ≈ 1/move); cost is roughly stable per edge, so cache the (conservative)
+  observed value; current `V` is readable from vitals; resting/sleeping regenerates
+  `V`. Unknown-cost edges use a nominal default and are flagged so the estimate's
+  confidence is visible.
+- **Will test:** per-edge cost recorded on walked moves; `route_cost` sums
+  correctly; `travel_to` pre-flight escalates a shortfall (does NOT walk into
+  exhaustion) with options; `rest_until` regenerates, then travel completes.
+- **Built:** per-move cost measurement (`V`-before − after → per-edge `edge_cost`,
+  keeping the conservative **max** so tick-regen noise can't understate it);
+  `route_cost` (sums edge costs, nominal default for uncosted legs, counts
+  unknowns); `travel_to` **pre-flight** that escalates a shortfall with options
+  instead of walking into exhaustion; a `rest_until` tool (rest → poll across ticks
+  → stand). Affordable trips still walk silently — the fast path is unchanged.
+- **Result:** `route_cost` unit-tested — correct totals, the conservative max
+  survives a regen-noised re-observation, and uncosted legs fall back to the
+  default and are counted. The escalation sits on that proven estimate.
+- **Learned (live):** `rest_until` runs mechanically but Perry recovered **0
+  movement** in the poll window — CircleMUD regen is tick-based (~75s) *and*
+  throttled hard by **hunger/thirst** (Perry is both). So resource recovery is a
+  multi-step problem — **eat/drink → rest → travel** — not a simple auto-rest,
+  which reinforces escalating to the LLM. Tuned `rest_until` to poll across ticks
+  and to report "regen blocked — check hunger/thirst" when nothing recovers.
+- **Pending (not a code gap):** live verification of real-move cost capture and the
+  escalation actually firing — both blocked until Perry has movement, which needs
+  sustenance + a full rest.
+- **Next → slice 6 (survival / upkeep):** keep Perry fed/watered/healed so stats
+  regen and he can act — it sits *beneath* navigation in the ability stack. Detect
+  condition (hungry/thirsty/HP/position from `score`) and act (reuse the existing
+  `consume_item` eat/drink) deterministically; escalate to the LLM only when
+  supplies are missing (buy/find — needs food-source knowledge in the world-model).
+  Same escalation pattern; feeds the shared status the store already owes combat
+  and planning.
 
 ## Technical Conclusions
 _To be filled in at week's end — hypotheses vs. outcomes, new uncertainties set
