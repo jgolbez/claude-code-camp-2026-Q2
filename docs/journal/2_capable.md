@@ -14,7 +14,7 @@
 | 3 — `plan_route` / `travel_to` | ✅ | One-call deterministic travel; **reached the Bakery** |
 | 4 — Connectivity from `exits` | ✅ | Named edges incl. the way back; no longer stranded one-way |
 | 5 — Movement economy | ✅ built\* | Move-cost graph + shortfall escalation (live rest/regen pending) |
-| 6 — Survival / upkeep | 🚧 planned | Text-triggered eat/drink reflex; escalate to LLM when supplies are missing |
+| 6 — Survival / upkeep | ✅ built\* | Text-triggered eat/drink reflex + tagged-source escalation (auto-consume live-pending) |
 
 ## Technical Goal
 Make **navigation reliable** — reach an intended destination without re-walking or
@@ -231,7 +231,28 @@ pathfinding out of the model, and navigation becomes reliable. Supporting:
 - **Will test.** Trigger hunger/thirst; confirm the reflex eats/drinks from
   inventory silently; confirm that with an empty inventory it escalates a concrete
   suggestion (source + route + affordability) instead of acting blindly.
-- **Built / Result:** _to fill after building._
+- **Built:** the reflex lives on the move/look seam. `send_cmd` now **keeps the
+  bytes it drains**, so the reflex can see async hunger/thirst pushes that arrive
+  while idle (drain used to discard them). On "You are hungry"/"You are thirsty" it
+  reads inventory and `eat`/`drink`s a keyword-matched held item; with nothing on
+  hand it escalates. Resource **tagging** added — a room showing a fountain →
+  `water`, a bakery → `food` — and the hint routes to the nearest *tagged* source
+  (or honestly says none is known yet).
+- **Result (live):** the async text was caught (drained-bytes fix works), inventory
+  read, and the escalation fired. Tagging verified — Temple Square's fountain
+  tagged it `water`; the Temple Of Midgaard has **no** fountain, which exposed and
+  corrected a bug: v1 guessed the source from the room *name* and confidently but
+  wrongly said "drink here". It now tags **observed** sources only and routes to
+  the real one (Temple Square, `s`, ≈1 movement).
+- **Not yet live-verified:** auto-eat/drink of a HELD item — Perry's pack is empty;
+  same detection path plus a consume call.
+- **Fixed / learned:** (1) `session.drain` silently dropped async pushes → capture
+  the drained bytes so the reflex sees them; (2) never guess a source from a room
+  name (Temple ≠ fountain) → tag sources actually seen. Also: movement *does* trickle
+  back even while hungry (0 → 10 over the session), just very slowly.
+- **Next:** tag more sources as Perry explores; optionally auto-drink when standing
+  at a tagged water source (currently escalates); the starvation deadlock and
+  buying-food-with-gold stay LLM-reasoning cases, as pre-registered.
 
 ## Technical Conclusions
 _To be filled in at week's end — hypotheses vs. outcomes, new uncertainties set
