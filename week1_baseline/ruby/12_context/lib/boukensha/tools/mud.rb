@@ -81,8 +81,13 @@ module Boukensha
         # etc.) before sending so that read_until_prompt sees only fresh data
         # produced by this command. Then we wait for CircleMUD's "> " prompt
         # sentinel, which the server always appends at the end of a response.
+        # Bytes drained just before the last command. Kept so the upkeep reflex
+        # can see async server pushes (hunger/thirst ticks) that arrived while idle
+        # — which drain would otherwise silently discard before we read them.
+        last_drained = ""
+
         send_cmd = lambda do |command|
-          session.drain
+          last_drained = session.drain.to_s
           session.send_command(command)
           session.read_until_prompt
         end
@@ -115,7 +120,73 @@ module Boukensha
           m && m[2].to_i
         end
 
+        # Slice 6: survival upkeep reflex. The MUD pushes "You are hungry" /
+        # "You are thirsty" each tick while in that state; when we see it in any
+        # output we read, eat/drink a held item automatically (deterministic, no
+        # LLM). When nothing is on hand, append a [upkeep] note pointing at a known
+        # source so the agent can decide how to acquire more.
+        food_kw     = /\b(bread|loaf|waybread|ration|meat|steak|fish|cheese|fruit|apple|banana|mushroom|cake|pie|egg)\b/i
+        drink_kw    = /\b(waterskin|flask|canteen|bottle|jug|barrel)\b/i
+        upkeep_busy = false
+
+        # Build a "no supplies" hint from ACTUAL tagged sources in the world-model
+        # (never a guessed room name). Routes to the nearest reachable source, or
+        # honestly says none is known yet.
+        source_hint = lambda do |kind, action|
+          candidates = world.rooms_with_resource(kind)
+          return "no #{kind} source discovered yet — explore to find one, then #{action}." if candidates.empty?
+
+          reachable = candidates.map { |r| [r, world.route_to(r["id"])] }.reject { |(_, rt)| rt.nil? }
+          if reachable.empty?
+            nearest = candidates.first
+            "nearest known #{kind} source is #{nearest['name']} (##{nearest['id']}) but no mapped route from here yet — #{action} once you reach it."
+          else
+            room, rt = reachable.min_by { |(_, r)| r.length }
+            if rt.empty?
+              "you are at #{room['name']} — #{action} here."
+            else
+              est = world.route_cost(rt)
+              "nearest #{kind} source is #{room['name']} (##{room['id']}) — travel_to it (route #{rt.join(',')}, ≈#{est[:total]} movement), then #{action}."
+            end
+          end
+        end
+
+        upkeep = lambda do |text|
+          return nil if upkeep_busy
+          hungry  = text =~ /you are hungry/i
+          thirsty = text =~ /you are thirsty/i
+          return nil unless hungry || thirsty
+
+          upkeep_busy = true
+          notes = []
+          begin
+            inv = MudText.strip_ansi(send_cmd.call(p.info_self("inventory")).to_s)
+            if hungry
+              if (m = inv.match(food_kw))
+                send_cmd.call(p.consume("eat", m[0].downcase))
+                notes << "[upkeep] hungry → ate #{m[0].downcase}."
+              else
+                notes << "[upkeep] hungry: " + source_hint.call("food", "buy food")
+              end
+            end
+            if thirsty
+              if (m = inv.match(drink_kw))
+                send_cmd.call(p.consume("drink", m[0].downcase))
+                notes << "[upkeep] thirsty → drank from #{m[0].downcase}."
+              else
+                notes << "[upkeep] thirsty: " + source_hint.call("water", "drink")
+              end
+            end
+          rescue StandardError => e
+            warn "[boukensha] upkeep error: #{e.message}"
+          ensure
+            upkeep_busy = false
+          end
+          notes.empty? ? nil : notes.join("\n")
+        end
+
         remember = lambda do |text, arrived_via: nil|
+          async = last_drained.to_s   # async pushes (e.g. hunger ticks) drained before this command
           note = begin
             v_after = parse_v.call(text)
             # Movement cost of this move = points before minus points after.
@@ -134,7 +205,8 @@ module Boukensha
             warn "[boukensha] world_model error: #{e.message}"
             nil
           end
-          note ? "#{text}\n#{note}" : text
+          up = upkeep.call("#{text}\n#{async}")
+          [text, note, up].compact.join("\n")
         end
 
         # Slice 3: deterministic travel. Resolve a destination, BFS a route over

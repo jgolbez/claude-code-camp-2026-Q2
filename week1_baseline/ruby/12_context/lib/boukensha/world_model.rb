@@ -85,6 +85,16 @@ module Boukensha
       entry["edge_via"]   ||= {}
       entry["edge_cost"]  ||= {}
 
+      # Slice 6: tag resource sources actually observed here (a fountain gives
+      # water; a bakery sells food) so upkeep can route to a real source rather
+      # than guessing from room names. Scan the FULL text — a fountain shows up in
+      # the object lines, which the fingerprint description deliberately drops.
+      full = raw.to_s.gsub(ANSI, "")
+      res  = []
+      res << "water" if full =~ /fountain/i
+      res << "food"  if entry["name"].to_s =~ /bakery/i
+      entry["resource"] = ((entry["resource"] || []) | res) unless res.empty?
+
       # Every exit the room advertises becomes a key; an unwalked one keeps a nil
       # target and is therefore part of the frontier.
       room[:exits].each { |d| entry["exits"][d] = nil unless entry["exits"].key?(d) }
@@ -229,6 +239,7 @@ module Boukensha
 
     # ── Slice 3: pathfinding ────────────────────────────────────────────────
 
+    def rooms_with_resource(kind) = @rooms.values.select { |r| (r["resource"] || []).include?(kind) }
     def room_by_id(id) = @rooms.values.find { |r| r["id"] == id }
     def name_for_id(id) = room_by_id(id)&.dig("name")
     def fp_for_id(id)
