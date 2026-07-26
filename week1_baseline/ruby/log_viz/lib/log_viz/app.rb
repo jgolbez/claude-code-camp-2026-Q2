@@ -7,8 +7,16 @@ require_relative "ansi"
 module LogViz
   class App < Sinatra::Base
     set :root, File.expand_path("../..", __dir__)
+    # Resolve the session-log directory the same way the runtime does. Priority:
+    #   1. LOG_VIZ_SESSIONS_DIR — explicit override
+    #   2. BOUKENSHA_DIR/sessions — matches the runtime when launched in its env
+    #   3. <repo root>/.boukensha/sessions — the repo root is FIVE levels up from
+    #      this file (lib/log_viz → lib → log_viz → ruby → week1_baseline → root),
+    #      where the runtime actually writes logs. (The old default used four
+    #      levels and pointed at week1_baseline/.boukensha, which does not exist.)
     set :sessions_dir, ENV.fetch("LOG_VIZ_SESSIONS_DIR") {
-      File.expand_path("../../../../.boukensha/sessions", __dir__)
+      base = ENV["BOUKENSHA_DIR"] || File.expand_path("../../../../../.boukensha", __dir__)
+      File.join(base, "sessions")
     }
 
     helpers do
