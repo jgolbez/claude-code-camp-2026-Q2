@@ -153,6 +153,90 @@ module Boukensha
       @rooms.values.select { |r| (r["exits"] || {}).values.any?(&:nil?) }
     end
 
+    # ── Slice 3: pathfinding ────────────────────────────────────────────────
+
+    def room_by_id(id) = @rooms.values.find { |r| r["id"] == id }
+    def name_for_id(id) = room_by_id(id)&.dig("name")
+    def fp_for_id(id)
+      @rooms.each { |fp, r| return fp if r["id"] == id }
+      nil
+    end
+
+    def current_id
+      @current_fp && @rooms[@current_fp] ? @rooms[@current_fp]["id"] : nil
+    end
+
+    # Resolve a destination query to a room id. Accepts "#5"/"5" (an id) or a
+    # case-insensitive name substring. When several rooms match a name, pick the
+    # one with the shortest known route from the current room.
+    def resolve_destination(query, from_fp: @current_fp)
+      q = query.to_s.strip
+      if q =~ /\A#?(\d+)\z/
+        id = Regexp.last_match(1).to_i
+        return room_by_id(id) ? id : nil
+      end
+
+      ql = q.downcase
+      # An exact (whole-name) match wins outright; otherwise fall back to a
+      # substring search. This keeps full names like "Market Square"
+      # unambiguous while still accepting shorthand like "market".
+      exact   = @rooms.values.select { |r| r["name"].to_s.downcase == ql }
+      matches = exact.empty? ? @rooms.values.select { |r| r["name"].to_s.downcase.include?(ql) } : exact
+      return nil if matches.empty?
+      return matches.first["id"] if matches.size == 1
+
+      # Ambiguous name: choose the closest reachable match from where we are.
+      scored = matches.map { |r| [r["id"], route_to(r["id"], from_fp: from_fp)] }
+                      .reject { |(_, path)| path.nil? }
+      return matches.first["id"] if scored.empty?
+      scored.min_by { |(_, path)| path.length }.first
+    end
+
+    # BFS shortest route (list of directions) from a room to a target id, over
+    # the KNOWN graph (walked edges only). Returns [] if already there, nil if
+    # the target isn't reachable within what we've mapped.
+    def route_to(target_id, from_fp: @current_fp)
+      return nil unless from_fp && (start = @rooms[from_fp])
+      return [] if start["id"] == target_id
+
+      visited = { from_fp => true }
+      queue   = [[from_fp, []]]
+      until queue.empty?
+        fp, path = queue.shift
+        (@rooms[fp]["exits"] || {}).each do |dir, tid|
+          next if tid.nil?
+          return path + [dir] if tid == target_id
+          tfp = fp_for_id(tid)
+          next if tfp.nil? || visited[tfp]
+          visited[tfp] = true
+          queue << [tfp, path + [dir]]
+        end
+      end
+      nil
+    end
+
+    # BFS to the nearest room that still has an unexplored exit. Returns
+    # [directions, frontier_room_id], or nil if nothing is left to explore.
+    def nearest_frontier_route(from_fp: @current_fp)
+      return nil unless from_fp && @rooms[from_fp]
+
+      visited = { from_fp => true }
+      queue   = [[from_fp, []]]
+      until queue.empty?
+        fp, path = queue.shift
+        room = @rooms[fp]
+        return [path, room["id"]] if (room["exits"] || {}).values.any?(&:nil?)
+        room["exits"].each do |dir, tid|
+          next if tid.nil?
+          tfp = fp_for_id(tid)
+          next if tfp.nil? || visited[tfp]
+          visited[tfp] = true
+          queue << [tfp, path + [dir]]
+        end
+      end
+      nil
+    end
+
     private
 
     def now = Time.now.utc.iso8601

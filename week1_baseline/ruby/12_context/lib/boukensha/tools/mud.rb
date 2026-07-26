@@ -117,6 +117,57 @@ module Boukensha
           note ? "#{text}\n#{note}" : text
         end
 
+        # Slice 3: deterministic travel. Resolve a destination, BFS a route over
+        # the mapped graph, and walk it step by step — spending no model tokens on
+        # the mundane moves. Control returns to the agent only on a compelling
+        # event: combat, a blocked exit, or arriving off-map.
+        full_dir   = { "n" => "north", "s" => "south", "e" => "east",
+                       "w" => "west", "u" => "up", "d" => "down" }
+        combat_re  = /\b(?:hits?|bashes?|bites?|claws?|attacks?|strikes?|slashes?|pierces?|crushes?|pounds?|mauls?|smites?)\s+you\b|\byou\s+are\s+attacked\b|\byou\s+have\s+been\s+(?:killed|attacked)\b/i
+        blocked_re = /\b(?:cannot\s+go\s+that\s+way|the\s+door\s+is\s+closed|it\s+seems\s+to\s+be\s+closed|isn'?t\s+open)\b/i
+
+        travel = lambda do |destination|
+          dest = destination.to_s.strip
+          return "error: no destination given" if dest.empty?
+
+          target = world.resolve_destination(dest)
+          if target
+            route = world.route_to(target)
+            return "#{dest.inspect} is room ##{target}, but no mapped path connects it to where you are. Explore to link them." if route.nil?
+            label = "#{world.name_for_id(target)} (##{target})"
+          else
+            fr = world.nearest_frontier_route
+            return "Can't route to #{dest.inspect}: not on the map, and no unexplored exits to head toward. Try 'look', or move manually." if fr.nil?
+            route, fid = fr
+            target = nil
+            label  = "the nearest unexplored area (room ##{fid})"
+          end
+
+          return "Already at #{label}." if route.empty?
+
+          walked = []
+          route.each do |short|
+            dir    = full_dir[short] || short
+            result = send_cmd.call(p.move(dir))
+            world.observe(result, arrived_via: dir)
+            body   = MudText.strip_ansi(result).strip
+
+            if world.parse_room(result).nil? || body =~ blocked_re
+              return "Stopped: move #{dir} was blocked after #{walked.empty? ? 'no moves' : walked.join(' → ')}.\n#{body}"
+            end
+            if body =~ combat_re
+              return "Stopped en route — COMBAT at room ##{world.current_id} after #{walked.join(' → ')}. Your call:\n#{body}"
+            end
+            walked << dir
+          end
+
+          arrived = world.current_id
+          if target && arrived != target
+            return "Walked #{walked.join(' → ')} but ended at room ##{arrived}, not #{label} — the map may be stale. Re-look and replan."
+          end
+          "Arrived at #{label} via #{walked.join(' → ')} (#{walked.size} room#{walked.size == 1 ? '' : 's'}). No decisions needed en route."
+        end
+
         # ── Connection ─────────────────────────────────────────────────────
 
         registry.tool "mud_connect",
@@ -223,6 +274,42 @@ module Boukensha
           rescue ArgumentError => e
             "error: #{e.message}"
           end
+        end
+
+        registry.tool "travel_to",
+          description: "Automatically walk to a destination you have already mapped, instead of " \
+                       "moving one room at a time. Give a room name (e.g. 'Market Square') or an " \
+                       "#id (e.g. '#5'). It plans the shortest route over rooms you've visited and " \
+                       "walks the whole way itself. It stops and hands control back only when " \
+                       "something needs a decision: combat en route, a blocked/closed exit, or " \
+                       "arriving somewhere off-map. If the destination isn't mapped yet, it heads " \
+                       "toward the nearest unexplored exit instead. Prefer this over repeated move " \
+                       "calls whenever you know where you want to go.",
+          parameters: {
+            destination: { type: "string", description: "Room name or #id to travel to" }
+          } do |destination:|
+          next guard.call if guard.call
+          travel.call(destination)
+        end
+
+        registry.tool "plan_route",
+          description: "Plan (but do NOT walk) the shortest known route to a destination room, so " \
+                       "you can see the path first. Returns the list of directions, or a note if " \
+                       "the destination is unmapped or not yet connected to your location.",
+          parameters: {
+            destination: { type: "string", description: "Room name or #id" }
+          } do |destination:|
+          next guard.call if guard.call
+          target = world.resolve_destination(destination.to_s)
+          if target.nil?
+            fr = world.nearest_frontier_route
+            next(fr ? "#{destination.inspect} isn't mapped. Nearest unexplored area: #{fr[0].empty? ? 'right here' : fr[0].join(', ')}." \
+                    : "#{destination.inspect} isn't mapped and there's nothing left to explore.")
+          end
+          route = world.route_to(target)
+          next "Room ##{target} is known but not yet connected to your location." if route.nil?
+          next "You're already at #{world.name_for_id(target)} (##{target})." if route.empty?
+          "Route to #{world.name_for_id(target)} (##{target}): #{route.join(', ')} — #{route.size} step#{route.size == 1 ? '' : 's'}."
         end
 
         registry.tool "flee",

@@ -171,6 +171,55 @@ It's also finally worth a **real-LLM run**: the `[memory]` line now carries
 navigational guidance ("south is unexplored"), so we can honestly test whether
 that reduces the re-walking the baseline suffered from.
 
+### Observation 4 — Slice 3: deterministic navigation (2026-07-26)
+
+**What we implemented.** BFS pathfinding in the store — `route_to` (shortest known
+route as a list of directions), `nearest_frontier_route` (route to the closest
+unexplored exit), and `resolve_destination` (accepts `#id`, an exact name, or a
+nearest-match substring). Two tools on top: **`plan_route`** (compute and show a
+route, no walking) and **`travel_to`** (plan *and* walk the whole route in a
+single tool call). `travel_to` hands control back to the model only on a
+**compelling event** — combat (a regex on "…hits you" lines), a blocked/closed
+exit, or arriving off-map (arrived id ≠ target). This realises the week's design
+goal: **the LLM only picks a destination and makes one call; every mundane
+per-room move happens deterministically, at zero model tokens.**
+
+**The result.** Verified live. On a small bidirectional map, `plan_route`
+returned `"… s — 1 step."`; `travel_to` walked multi-step routes in one call
+(`"Arrived … via north → north (2 rooms). No decisions needed en route."`); `#id`
+travel worked; and exact-name resolution removed an ambiguity found in the first
+run — "Temple" had matched *both* "The Temple Of Midgaard" and "The Temple
+Square", so full names now win by exact match while shorthand falls back to the
+nearest. Unmapped destinations correctly fell back to the frontier. BFS was also
+unit-tested on a synthetic graph, confirming directed-edge behaviour (forward
+path found; reverse correctly unreachable). **Not yet live-verified:** the
+combat/blocked interruption — the detection is implemented but needs an aggressive
+mob en route to exercise.
+
+**Acceptance test — reach the Bakery.** The instructor's Week 2 benchmark. Once
+the Temple↔Bakery route was mapped (walked once each way), `travel_to "The Bakery"`
+from the Temple of Midgaard walked all four rooms — `south → south → west → north`
+— and arrived in a **single tool call**, "No decisions needed en route"; the
+reverse trip did the same. So navigation is reliable and deterministic where the
+baseline wandered 65K tokens and gave up. This also surfaced the directed-edge
+corollary *in practice*: `travel_to` only routes over paths already walked in that
+direction, so a destination must be **discovered first** (explored), and a one-way
+exploration leaves no mapped path back until the return is walked. A future
+improvement could record **presumed-reverse edges** (verified on first use) so
+return trips work without walking both directions — noted for later, not built.
+
+**Caveat learned.** Perry's MUD position **persists between runs**, so a test's
+map is built relative to wherever he actually is, not an assumed start. Repeatable
+benchmarks would want a reset-to-start (the instructor's
+`move_player_to_start_room`); not needed yet, but noted.
+
+**Expectation for the next phase.** The full navigation stack now exists —
+recognition, a directed map, a frontier, and one-call deterministic travel. The
+honest next test is a **real-LLM run**: give the agent a goal and watch whether it
+reaches for `travel_to`/`plan_route`, and whether frontier-aware memory plus
+deterministic travel actually eliminates the wandering the baseline suffered. That
+would close the loop on the Week 2 hypothesis.
+
 ## Technical Conclusions
 _To be filled in — reflecting the hypotheses above against what actually
 happened, plus any new uncertainty set aside and next steps._
