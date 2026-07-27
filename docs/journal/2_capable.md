@@ -17,7 +17,8 @@
 | 6 — Survival / upkeep | ✅ built\* | Text-triggered eat/drink reflex + tagged-source escalation (auto-consume live-pending) |
 | 7a/7b — `explore` tool + nav policy | ✅ done (Obs 9) | First-class `explore` (steps *through* a frontier exit) + a `prompts/system.md` policy for which movement tool to use |
 | 7c — distill room text | ✅ done (Obs 10) | ANSI/vitals stripped; description dropped on revisit-move (−65% B), kept on explicit `look`; occupants always kept. **Obs 10: context growth ~7K→~250 tok/iter, window use 4%** |
-| 8 — prompt caching | 🔜 next | Obs 10's new bottleneck: 38-tool schema + system prompt (~5.8K) re-billed **uncached** every call (`cache_read=0`) trips `max_turn_tokens`. Cache the fixed prefix |
+| 8 — prompt caching | ✅ done (Obs 11) | Cache breakpoints on last tool + system → `cache_read=5473`/call. **Reach 9→22 iters, 7→13 rooms, found the guild district.** |
+| 9 — cache messages + rethink `max_turn_tokens` | 🔜 next | Obs 11's wall: uncached growing message history summed against a 60K cumulative cap (while ctx use is <3%). Cache history and/or raise the cap |
 
 ## Technical Goal
 Make **navigation reliable** — reach an intended destination without re-walking or
@@ -456,6 +457,47 @@ Perry started at the Temple.
   the tools; the per-turn token cost *cratered*) — and by removing the room-text
   bottleneck they **revealed** the next one: the uncached fixed per-call overhead
   against a cumulative turn budget. **Caching is now the highest-leverage move.**
+
+### Obs 11 — Prompt caching (slice 8): 2.4× the reach, guild district found (2026-07-27)
+
+Added Anthropic prompt caching (two ephemeral breakpoints: the last tool → caches
+the whole 38-tool schema; the system prompt). Same reset-map week-1 task, Perry
+rested + provisioned (user topped him to 8 gold). Predicted: the ~5.8K fixed
+tools+system prefix stops being re-billed every call, so the cumulative
+`max_turn_tokens` budget lasts far longer and the run reaches many more iterations.
+
+- **Caching confirmed working.** Call 1: `cache_creation = 5473`, `input = 335`.
+  Calls 2–22: **`cache_read = 5473` on every call** — the fixed prefix is served
+  from cache, not re-billed. Exactly as designed.
+- **Reach more than doubled.** Iterations before the wall **9 → 22**; rooms mapped
+  **7 → ~13**. And it **broke out of the Grunting Boar Inn dead-end** this time —
+  reached Temple Square → Market Square → Main Street, and **found the Swordsmen's
+  guild** (guard-blocked). Its closing reasoning was now correct and specific
+  ("thieves' guild likely west or south of Market Square") — on the doorstep.
+- **Tool selection is genuinely intelligent.** `explore` ×12 to discover broadly,
+  then `move`/`travel_to` to navigate deliberately to specific spots (e.g.
+  `travel_to #10` back to Main Street). Discovery vs. targeted movement, chosen
+  per situation — the whole point of slice 7b.
+- **Still stopped on `max_tokens`, now at iter 22** — and the *reason* is the next
+  lever. Caching covers tools+system, but the **message history is NOT cached** and
+  grows every turn (counted `input_tokens` climbs 335 → 4599). `max_turn_tokens`
+  sums those, so the cumulative still crosses 60K — just after 22 turns, not 9.
+  Crucially, **context-window use peaked at ~5.5K = <3% of 200K**: the 60K per-turn
+  cap is an *artificial* spend limit, not real memory pressure. It's a roughly
+  O(n²) metric (each turn re-counts the growing history), so it will always trip
+  eventually as turns increase.
+- **Next levers (either likely reaches the guild — it was that close):**
+  1. **Cache the message history too** — a third breakpoint on the last message
+     each turn, so `input_tokens` stays tiny (only the newest delta) and the
+     cumulative grows far slower. The "correct" fix; compounds with slice 8.
+  2. **Raise / rethink `max_turn_tokens`.** Real context use is <3%, so the 60K
+     cumulative-spend cap is what's cutting productive runs short. Raise it (→ the
+     iteration cap of 40 becomes the real limit) or make the breaker
+     context-window-% based rather than a cumulative per-turn sum.
+- **Takeaway:** slice 8 did exactly what Obs 10 predicted — the fixed prefix is now
+  cached (`cache_read = 5473`/call), the wall moved 9 → 22 iterations, and the agent
+  reached the guild district. The remaining limiter is the *uncached growing message
+  history* against an *artificial cumulative-spend cap* — both cheaply addressed.
 
 ## Technical Conclusions
 _To be filled in at week's end — hypotheses vs. outcomes, new uncertainties set

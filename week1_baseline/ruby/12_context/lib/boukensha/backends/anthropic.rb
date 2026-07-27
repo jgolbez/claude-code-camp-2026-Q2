@@ -69,13 +69,39 @@ module Boukensha
       end
 
       def to_payload(context, max_output_tokens: 1024, tools: nil)
+        tool_list = tools.nil? ? to_tools(context.tools) : tools
         {
           model: @model,
-          system: context.system,
+          system: cacheable_system(context.system),
           max_tokens: max_output_tokens,
-          tools: tools.nil? ? to_tools(context.tools) : tools,
+          tools: cache_last_tool(tool_list),
           messages: to_messages(context.messages)
-        }
+        }.compact
+      end
+
+      # Prompt caching (Obs 10 fix). The cache prefix is tools -> system, both of
+      # which are STABLE every call, yet Obs 10 showed them re-billed uncached
+      # (cache_read=0) as ~5.8K tokens/iter — the sum tripped max_turn_tokens at
+      # iter 9. We mark two ephemeral cache breakpoints: the last tool (caches the
+      # whole 38-tool schema) and the system prompt. After the first call the
+      # prefix is read from cache, so usage.input_tokens drops to just the new
+      # message delta — which is what the turn-token budget counts.
+
+      # System prompt as a single cacheable text block. nil/empty stays nil so
+      # .compact drops the key (matches the old string-or-nil behaviour).
+      def cacheable_system(system)
+        return nil if system.nil? || system.to_s.empty?
+
+        [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
+      end
+
+      # Tag the final tool with a cache breakpoint so the entire (stable) tool
+      # schema before it is cached. Non-destructive: the caller's array/hashes
+      # are left untouched.
+      def cache_last_tool(tool_list)
+        return tool_list if tool_list.nil? || tool_list.empty?
+
+        tool_list[0...-1] + [tool_list.last.merge(cache_control: { type: "ephemeral" })]
       end
 
       def headers
