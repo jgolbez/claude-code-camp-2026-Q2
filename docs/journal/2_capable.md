@@ -396,6 +396,22 @@ arrivals don't. Unit test + live check both pass:
   under the LLM and confirm it now reaches the guild within the token budget. Held
   until credits are available; deterministic pieces are all green.
 
+### Prep note — auto-orient on connect (found staging Perry for Obs 10)
+
+Staging Perry (reposition to the Temple for Obs-8 parity) surfaced a real bug:
+`travel_to`/`explore` route from `current_fp`, which is **nil until the agent
+looks** — so a session's *first* navigation call returned "no mapped path". Fixed:
+`mud_connect` and the auto-connect block now do one silent look-and-observe after
+login to establish "you are here". Verified (Wall Road → Temple in a single
+`travel_to`, no prior look). This de-risks Obs 10: the LLM's first move can now be
+`explore`/`travel_to` without a wasted orienting turn.
+
+**Perry's Obs-10 starting state:** Temple of Midgaard (#1), 23/23 HP, thirst
+buffered at the fountain, 49/83 movement, **no food + 6 gold** (a danish is 7, so
+he starts un-provisioned on food — hunger will trip the upkeep escalation mid-run;
+worth watching as a real integrated-system test). Map holds 12 rooms; the guild is
+still unmapped, so finding it remains the genuine challenge.
+
 ## Technical Conclusions
 _To be filled in at week's end — hypotheses vs. outcomes, new uncertainties set
 aside, next steps._
