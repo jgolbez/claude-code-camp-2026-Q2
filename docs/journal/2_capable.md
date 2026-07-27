@@ -18,7 +18,8 @@
 | 7a/7b — `explore` tool + nav policy | ✅ done (Obs 9) | First-class `explore` (steps *through* a frontier exit) + a `prompts/system.md` policy for which movement tool to use |
 | 7c — distill room text | ✅ done (Obs 10) | ANSI/vitals stripped; description dropped on revisit-move (−65% B), kept on explicit `look`; occupants always kept. **Obs 10: context growth ~7K→~250 tok/iter, window use 4%** |
 | 8 — prompt caching | ✅ done (Obs 11) | Cache breakpoints on last tool + system → `cache_read=5473`/call. **Reach 9→22 iters, 7→13 rooms, found the guild district.** |
-| 9 — cache messages + rethink `max_turn_tokens` | 🔜 next | Obs 11's wall: uncached growing message history summed against a 60K cumulative cap (while ctx use is <3%). Cache history and/or raise the cap |
+| 9 — lift `max_turn_tokens` cap | ✅ done (Obs 12) | Cap disabled (=0), iters→60 (safe: caching keeps ctx <3%). **Guild FOUND + guildmaster reached + combat for gold; stopped on iteration cap, not tokens.** Navigation ability complete |
+| 10 — planning/leveling (next ability) | 🔜 next | Obs 12's only miss: can't train (0 practice sessions) — a level-1 game mechanic. Needs leveling (kill for XP) → the combat/planning arc |
 
 ## Technical Goal
 Make **navigation reliable** — reach an intended destination without re-walking or
@@ -498,6 +499,40 @@ tools+system prefix stops being re-billed every call, so the cumulative
   cached (`cache_read = 5473`/call), the wall moved 9 → 22 iterations, and the agent
   reached the guild district. The remaining limiter is the *uncached growing message
   history* against an *artificial cumulative-spend cap* — both cheaply addressed.
+
+### Obs 12 — Uncapped run: the guild is FOUND; navigation ability complete (2026-07-27)
+
+With slice 8 caching proving real context use stays <3%, the `max_turn_tokens`
+cap was disabled (`= 0`) and `max_iterations` raised to 60 — letting iterations,
+not an artificial spend cap, bound the run. Map kept from Obs 11 (Perry parked in
+the guild district, provisioned by the user: carrying bread + 8 gold).
+
+- **The week-1 task is essentially SOLVED.** The agent **found the Thieves' Guild**
+  (Dark Alley, south of Common Square) and reached the **guildmaster in the Secret
+  Yard (#21)** — the exact goal that circled aimlessly in week 1 and hit the token
+  wall at iteration 10 in Obs 8.
+- **It played the game, not just walked it.** 62 tool calls across the run:
+  `explore` ×10, `move` ×19, `travel_to` ×2 (navigation), plus real combat —
+  `consider` → `set_wimpy` → `attack` ×3 → `get_item` ×3 — killing 3 bats and
+  earning gold (8 → 18). It mapped **26 rooms** (was 13).
+- **Stopped on `max_iterations` (60), NOT tokens.** Cumulative turn-tokens reached
+  **346,625** with the cap off and the loop kept working the whole way — the
+  artificial per-turn wall that ended Obs 8/10/11 is gone. Disabling it is safe
+  precisely because caching keeps window use tiny (compaction at 0.85 remains the
+  real backstop).
+- **The one thing it couldn't do — train — is a game mechanic, not an agent
+  failure:** "0 practice sessions remaining". Perry almost certainly needs to
+  **level up first** (a level-1 has no/low practice slots). That's a
+  **planning/leveling** problem — the *third* table-stakes ability — not navigation.
+- **Minor gaps noted:** it "got lost in the sewer" (a maze sub-area stresses the
+  map), and leaned on `send_raw` ×12 (the escape hatch) for some guild/sewer
+  commands — a signal that a few structured tools (or better maze handling) are
+  still missing.
+- **Verdict: the navigation table-stakes ability is DONE.** explore + travel_to +
+  world-model memory + distillation + caching compose into an agent that navigates
+  purposefully, remembers, fights for resources, and reaches a named goal it had
+  never mapped. The arc from week-1 circling → Obs 12 guild-found is the whole
+  Week-2 thesis, demonstrated.
 
 ## Technical Conclusions
 _To be filled in at week's end — hypotheses vs. outcomes, new uncertainties set
