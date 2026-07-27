@@ -534,6 +534,32 @@ the guild district, provisioned by the user: carrying bread + 8 gold).
   never mapped. The arc from week-1 circling → Obs 12 guild-found is the whole
   Week-2 thesis, demonstrated.
 
+### Fixes from Obs 12 — knowledge, stopping discipline, and a real bound
+
+Obs 12 reached the goal but exposed three flaws worth fixing before the next arc:
+
+1. **Wrong mental model of training.** The agent believed the guildmaster "requires
+   gold to grant practice sessions" — false. Practicing spends a **practice
+   session** (from levelling), not gold. Added a **"Training a skill — practice
+   sessions, NOT gold"** section to `prompts/system.md`, including the specific
+   trap ("no practice sessions" ≠ "need more gold").
+2. **No stopping discipline.** It kept hunting gold and got lost in the sewer for
+   ~30 turns *after* it had effectively won (found the guild + hit the training
+   blocker). Added **"Know when to stop"**: when a goal is blocked by a prerequisite
+   you can't satisfy now, report the blocker and stop — finishing early with a
+   precise blocker is a success. This is the main lever against wasted spend.
+3. **Unbounding was too loose.** `max_turn_tokens = 0` let the run hit **346K**
+   summed tokens — unacceptable. Restored a finite bound: **`max_turn_tokens =
+   120K`** (60K was artificially small — Obs 11 hit it mid-task; 120K clears a real
+   exploration+combat run with the early-stop discipline, while catching runaway),
+   `max_iterations` back to 40. To be revisited *downward* once message-history
+   caching lands (slice 9), which would make each iteration far cheaper.
+
+Open efficiency lever (not yet done): **cache the growing message history** (a
+third breakpoint) so per-call `input_tokens` stays tiny — the real fix for the
+O(n²) cumulative-turn-token growth, which would let the 120K bound stretch much
+further or be tightened.
+
 ## Technical Conclusions
 _To be filled in at week's end — hypotheses vs. outcomes, new uncertainties set
 aside, next steps._

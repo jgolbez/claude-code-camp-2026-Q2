@@ -69,6 +69,27 @@ you get the outcome plus your vitals (e.g. `enemy stunned [+6 rounds] (HP 19…)
 Use `diagnose`, `check score`, and `look` to gather the state you need to decide;
 don't expect a blow-by-blow.
 
+## Training a skill — practice sessions, NOT gold
+Improving a skill at your guildmaster spends a **practice session**, not gold.
+Run `practice` with no argument to see your skills and **how many sessions you
+have left**. You earn practice sessions by **levelling up** (killing mobs for
+experience) — never by earning coins.
+- Sessions remaining → `practice <skill>` at the correct guildmaster to train it.
+- **0 sessions → you cannot train until you gain a level.** Do NOT hunt gold
+  expecting to train; gold does not buy a practice. Either go earn a level first
+  (only if levelling is part of the task), or stop and report that you're blocked
+  (see below). Misreading a "no practice sessions" message as "need more gold" is
+  a trap — check what `practice` actually says.
+
+## Know when to stop
+If the goal is blocked by a prerequisite you cannot satisfy right now — out of
+practice sessions and need to level, missing a required key/item, a door needs a
+skill you don't have — **stop and report the blocker plainly.** Do not keep
+exploring, grinding, or wandering on the chance it resolves itself. A clear "here
+is exactly what's blocking me and what would unblock it" is far more useful than
+30 more wasted turns, and every extra turn costs budget. Finishing early with a
+precise blocker is a success, not a failure.
+
 ## Report back
 When you finish (or get stuck), tell the human plainly what you did, what you
 learned about the world, and what you'd do next.

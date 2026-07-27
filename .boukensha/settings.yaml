@@ -18,9 +18,13 @@ system:
   override: true          # use prompts/system.md as the full system prompt
 
 agent:
-  max_iterations: 60      # tool calls allowed per player turn
+  max_iterations: 40      # tool calls allowed per player turn
   max_output_tokens: 1024
-  max_turn_tokens: 0       # 0 = disabled; caching keeps real ctx use <3%, so the
-                           # 60K cumulative cap was an artificial limiter (Obs 11).
-                           # Let max_iterations be the bound instead.
+  max_turn_tokens: 120000  # Bounded, not unbounded (Obs 12 ran to 346K when 0 =
+                           # disabled — too loose). 60K was artificially small
+                           # (Obs 11 hit it mid-task at iter 22); 120K clears a
+                           # real exploration+combat task with the early-stop
+                           # discipline in prompts/system.md, while still catching
+                           # runaway. Revisit downward once message-history caching
+                           # lands (would make each iteration much cheaper).
   compaction_threshold: 0.85
