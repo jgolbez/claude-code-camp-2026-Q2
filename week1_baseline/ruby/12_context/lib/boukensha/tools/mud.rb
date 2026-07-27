@@ -185,7 +185,7 @@ module Boukensha
           notes.empty? ? nil : notes.join("\n")
         end
 
-        remember = lambda do |text, arrived_via: nil|
+        remember = lambda do |text, arrived_via: nil, full: false|
           async = last_drained.to_s   # async pushes (e.g. hunger ticks) drained before this command
           note = begin
             v_after = parse_v.call(text)
@@ -206,7 +206,12 @@ module Boukensha
             nil
           end
           up = upkeep.call("#{text}\n#{async}")
-          [text, note, up].compact.join("\n")
+          # Slice 7c: return a distilled room block (ANSI-stripped, description
+          # dropped on revisits unless `full`) to keep token cost down; `note`
+          # is non-nil exactly when this was a room block. Non-room text (errors,
+          # blocked moves) is only ANSI-stripped so nothing meaningful is lost.
+          body = note ? world.distill(text, full: full) : MudText.strip_ansi(text)
+          [body, note, up].compact.join("\n")
         end
 
         # Slice 3: deterministic travel. Resolve a destination, BFS a route over
@@ -385,7 +390,7 @@ module Boukensha
             # Only a bare look describes the room you're actually in; looking at a
             # target or peeking a direction must not count as a visit.
             if target.nil? && preposition.nil?
-              remember.call(result)
+              remember.call(result, full: true)
             else
               result
             end

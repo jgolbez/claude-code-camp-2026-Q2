@@ -16,7 +16,7 @@
 | 5 — Movement economy | ✅ built\* | Move-cost graph + shortfall escalation (live rest/regen pending) |
 | 6 — Survival / upkeep | ✅ built\* | Text-triggered eat/drink reflex + tagged-source escalation (auto-consume live-pending) |
 | 7a/7b — `explore` tool + nav policy | ✅ done (Obs 9) | First-class `explore` (steps *through* a frontier exit) + a `prompts/system.md` policy for which movement tool to use |
-| 7c — distill room text | 🔜 next | Terse room summary + `[memory]` instead of full ANSI dumps (the ~7K-tok/iter that capped Obs 8) |
+| 7c — distill room text | ✅ built | ANSI/vitals stripped; description dropped on revisit-move (−65% B), kept on explicit `look`; occupants always kept. LLM re-run (Obs 10) pending credits |
 
 ## Technical Goal
 Make **navigation reliable** — reach an intended destination without re-walking or
@@ -334,6 +334,67 @@ Acting on Obs 8's two levers that make the model *use* the tools. Distillation
   the ~7K-tokens/iteration full-ANSI room dumps are what capped Obs 8. Feed a terse
   summary + the `[memory]` line instead. Then re-run the exact week-1 task under the
   LLM (Obs 10) to confirm it now reaches the guild within budget.
+
+### Slice 7c — distill room text (plan, pre-registered before building)
+
+**Problem.** Every room block returned to the model is raw: full of ANSI colour
+codes and, on a revisit, the entire multi-line description — which the `[memory]`
+line already identifies by name + id + exits. Context is cumulative, so each
+turn re-sends the prior blocks too. In Obs 8 this compounded to ~7K tokens/iter
+and hit the 69.6K cap at 10 iterations, *before* the model could reach the guild.
+
+**Plan.**
+- **Strip ANSI** from all room results (pure colour noise to a text model).
+- **Always keep:** room name, the exits line, and the live "who/what is here"
+  lines (mobs, items, shopkeepers) — combat / steal / shop / loot decisions ride
+  on those and they're *not* in `[memory]`. **Drop** the raw vitals-prompt line
+  (`23H 100M 63V …`); HP/movement come from `check score`, combat output, and the
+  movement-economy tools.
+- **Description:** keep on the **first visit** (it carries navigation clues, e.g.
+  "south is the Grubby Inn"); **drop on a revisit** (redundant with `[memory]`).
+  **Exception:** an explicit bare `look` keeps the description even on a revisit —
+  a `look` is "show me this room", so the model can always re-read on demand;
+  a `move`/`explore` arrival into a known room does not.
+- **Implementation:** `WorldModel#distill(raw, full:)`, wired through the existing
+  `remember` seam. Non-room text (errors, "you can't go that way", shop dialogue)
+  is only ANSI-stripped, never distilled — distill fires only on a `parse_room`
+  hit, so it can't eat a genuine message.
+
+**Expected outcome.**
+- A large drop in tokens per room result — ANSI removal alone is significant, and
+  dropping the description on the *common* revisit case removes the biggest block.
+- Cumulative context grows much more slowly → the **same** week-1 task should get
+  many more iterations before the token cap — enough, we predict, to actually find
+  the guild (to be confirmed as **Obs 10**).
+- **No loss of decision-relevant info:** occupants/items stay; identity + exits
+  stay (in the body on first visit, in `[memory]` always); a description is always
+  re-readable via an explicit `look`.
+
+**Risks / watch.**
+- If the model relied on re-reading a description mid-navigation, a revisit
+  `move` won't show it — mitigated by the explicit-`look` exception.
+- Distillation must never swallow a non-room message — guarded by the
+  `parse_room`-hit gate; verify with a failed move + a shop interaction.
+- **Measure it:** tokens/turn before vs after on an identical short scripted
+  sequence, so the win is a number, not a vibe.
+
+**Built + result (deterministic, no LLM).** `WorldModel#distill(raw, full:)` wired
+through the `remember` seam; bare `look` passes `full: true`, `move`/`explore`
+arrivals don't. Unit test + live check both pass:
+- Unit (fabricated block w/ ANSI + vitals): first visit **−16%** bytes (ANSI +
+  vitals only, description kept), **revisit −65%** (description dropped). ANSI gone,
+  vitals gone, occupants kept in both, `full:` restores the description, non-room
+  text → `nil` (falls back to plain ANSI-strip, never distilled).
+- Live: `look` on Wall Road stayed full (248 B, description shown); `move` into a
+  revisited room dropped the description (126 B for the same room) while keeping
+  all occupant lines (e.g. six cityguards at the West Gate — kept, since they're
+  combat/steal-relevant).
+- Since navigation is **mostly revisits**, the common case is the 65% case. The
+  effect compounds across turns because context is cumulative — exactly the Obs-8
+  cap driver.
+- **Still pending → Obs 10:** the payoff test — re-run the *exact* week-1 task
+  under the LLM and confirm it now reaches the guild within the token budget. Held
+  until credits are available; deterministic pieces are all green.
 
 ## Technical Conclusions
 _To be filled in at week's end — hypotheses vs. outcomes, new uncertainties set

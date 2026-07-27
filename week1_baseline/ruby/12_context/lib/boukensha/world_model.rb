@@ -146,6 +146,38 @@ module Boukensha
       { name: name, description: desc, exits: dirs.sort }
     end
 
+    # Slice 7c: render a room block compactly for the model. Strips ANSI, keeps
+    # the name, exits, and the live "who/what is here" lines (mobs, items,
+    # shopkeepers — decision-relevant and NOT in [memory]), and drops the raw
+    # vitals prompt. The multi-line description is kept on a FIRST visit (nav
+    # clues) but dropped on a revisit, where [memory] already gives name+id+exits
+    # — unless `full:` is set (an explicit `look` = "show me this room"). Returns
+    # nil when `raw` is not a room block, so non-room text is never distilled.
+    def distill(raw, full: false)
+      room = parse_room(raw)
+      return nil unless room
+
+      entry   = @current_fp && @rooms[@current_fp]
+      revisit = entry && entry["visits"].to_i > 1
+
+      clean     = raw.to_s.gsub(ANSI, "").gsub("\r\n", "\n").gsub("\r", "\n")
+      lines     = clean.split("\n")
+      exits_idx = lines.index { |l| l =~ /\[\s*Exits:/i }
+
+      # Occupant/object lines follow the exits line. Drop blanks and the vitals
+      # prompt ("23H 100M 63V (news) > ").
+      here = (exits_idx ? lines[(exits_idx + 1)..] : []).to_a.reject do |l|
+        s = l.strip
+        s.empty? || s =~ /\d+H\s+\d+M\s+\d+V/ || s =~ /\A>+\s*\z/
+      end.map(&:rstrip)
+
+      out = [room[:name]]
+      out << room[:description] if !room[:description].empty? && (full || !revisit)
+      out << "[ Exits: #{room[:exits].join(' ')} ]"
+      out.concat(here)
+      out.join("\n")
+    end
+
     # Stable content identity: name + description + exit directions. Mobs and
     # objects are excluded by construction (parse_room drops them), so a room's
     # fingerprint does not change when NPCs move around.
