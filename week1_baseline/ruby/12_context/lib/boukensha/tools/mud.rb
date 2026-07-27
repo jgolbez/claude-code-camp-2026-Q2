@@ -214,6 +214,18 @@ module Boukensha
           [body, note, up].compact.join("\n")
         end
 
+        # Establish "you are here" by looking once and feeding it to the
+        # world-model, so travel_to/explore work on the FIRST action of a session
+        # (route_to needs a current room; without this it's nil until the agent
+        # happens to look). Silent — the result is not returned to the agent.
+        orient = lambda do
+          begin
+            world.observe(send_cmd.call(p.look))
+          rescue StandardError => e
+            warn "[boukensha] orient failed: #{e.message}"
+          end
+        end
+
         # Slice 3: deterministic travel. Resolve a destination, BFS a route over
         # the mapped graph, and walk it step by step — spending no model tokens on
         # the mundane moves. Control returns to the agent only on a compelling
@@ -348,6 +360,7 @@ module Boukensha
             begin
               session.open
               welcome = session.login(name, password)
+              orient.call
               "connected to #{session.host}:#{session.port}\n#{welcome}"
             rescue MudManager::Session::Error => e
               "error: #{e.message}"
@@ -916,6 +929,7 @@ module Boukensha
         begin
           session.open
           session.login(name, password)
+          orient.call
         rescue MudManager::Session::Error => e
           warn "[boukensha] MUD auto-connect failed: #{e.message} — call mud_connect manually"
         end
