@@ -16,7 +16,8 @@
 | 5 — Movement economy | ✅ built\* | Move-cost graph + shortfall escalation (live rest/regen pending) |
 | 6 — Survival / upkeep | ✅ built\* | Text-triggered eat/drink reflex + tagged-source escalation (auto-consume live-pending) |
 | 7a/7b — `explore` tool + nav policy | ✅ done (Obs 9) | First-class `explore` (steps *through* a frontier exit) + a `prompts/system.md` policy for which movement tool to use |
-| 7c — distill room text | ✅ built | ANSI/vitals stripped; description dropped on revisit-move (−65% B), kept on explicit `look`; occupants always kept. LLM re-run (Obs 10) pending credits |
+| 7c — distill room text | ✅ done (Obs 10) | ANSI/vitals stripped; description dropped on revisit-move (−65% B), kept on explicit `look`; occupants always kept. **Obs 10: context growth ~7K→~250 tok/iter, window use 4%** |
+| 8 — prompt caching | 🔜 next | Obs 10's new bottleneck: 38-tool schema + system prompt (~5.8K) re-billed **uncached** every call (`cache_read=0`) trips `max_turn_tokens`. Cache the fixed prefix |
 
 ## Technical Goal
 Make **navigation reliable** — reach an intended destination without re-walking or
@@ -411,6 +412,50 @@ buffered at the fountain, 49/83 movement, **no food + 6 gold** (a danish is 7, s
 he starts un-provisioned on food — hunger will trip the upkeep escalation mid-run;
 worth watching as a real integrated-system test). Map holds 12 rooms; the guild is
 still unmapped, so finding it remains the genuine challenge.
+
+### Obs 10 — Reset-map LLM re-run: the fixes work; the bottleneck moved (2026-07-27)
+
+Same week-1 task, Haiku, but now with slice 7 live (explore + nav policy +
+distillation), a **reset map** (explore from scratch), and a **clean task prompt
+with no tool hints** — to test whether the system prompt *alone* steers tool use.
+Perry started at the Temple.
+
+- **Didn't find the guild — but 7b and 7c are both VALIDATED:**
+  - **Tool steering (7b) works.** Sequence: `check score` → `check where` →
+    `look` → **`explore` ×6** → `travel_to #2`. **Zero manual `move` chains** —
+    the system-prompt policy by itself made the model reach for `explore` on the
+    unmapped goal, with no hint in the task. (Obs 8 hand-stepped with `move`.)
+  - **Distillation (7c) works, dramatically.** Per-iteration context growth fell
+    from ~7K tok/iter (Obs 8) to **~250 tok/iter**; context-window usage peaked at
+    **8K / 200K = 4%**. Room-text bloat is gone.
+- **It still stopped early — but for a NEW reason.** `turn_end reason=max_tokens`
+  at iteration 9 (67,639 > the `max_turn_tokens = 60,000` per-turn breaker). This
+  is **not** context-window pressure (4% used). It's the *cumulative* per-turn
+  budget summing the **fixed per-call overhead**: every call re-sends the
+  **38-tool schema + system prompt (~5.8K tokens), uncached (`cache_read = 0`)**, so
+  ~7K × 9 calls ≈ 64K. The bottleneck moved from *room text* → *fixed prefix ×
+  call count*.
+- **Exploration was undirected and rabbit-holed.** `explore` dives into the
+  *nearest* frontier; from the Temple that led straight into the dense **Grunting
+  Boar Inn** cluster (inn → bar → post office → reception → cryo) — all service
+  rooms, away from the alleys/market where the guild actually sits. The model's
+  *own* closing reasoning was right ("guilds hide off the main streets / north out
+  the back of the Temple") but it ran out of turn-budget before acting on it.
+- **Next levers (priority order):**
+  1. **Prompt caching — the big one.** `cache_read = 0`: the ~5.8K tool-schema +
+     system prefix is re-billed every call. Anthropic prompt caching makes it ~free
+     after the first call, directly killing the dominant cost — should multiply the
+     reachable iterations several-fold.
+  2. **Revisit `max_turn_tokens = 60K`.** It's a cumulative-per-turn breaker that
+     cuts off at ~9 calls despite 96% context headroom. Raise it, or reconsider
+     whether cumulative turn-tokens is even the right guardrail vs. context-window %.
+  3. **Directed exploration.** Let the model bias `explore` by compass/keyword, or
+     avoid rabbit-holing in dense clusters, so it heads toward likely-guild areas
+     rather than the nearest frontier.
+- **Takeaway:** both slice-7 fixes did exactly what we predicted (the model *used*
+  the tools; the per-turn token cost *cratered*) — and by removing the room-text
+  bottleneck they **revealed** the next one: the uncached fixed per-call overhead
+  against a cumulative turn budget. **Caching is now the highest-leverage move.**
 
 ## Technical Conclusions
 _To be filled in at week's end — hypotheses vs. outcomes, new uncertainties set
