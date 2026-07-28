@@ -186,6 +186,21 @@ module Boukensha
           notes.empty? ? nil : notes.join("\n")
         end
 
+        # Force-consume carried food/water regardless of a hunger tick — used to
+        # unblock rest regen, which stalls when hungry/thirsty. Harmless if not
+        # needed (the MUD just says "too full" / "not thirsty"). Returns notes.
+        provision = lambda do
+          inv   = MudText.strip_ansi(send_cmd.call(p.info_self("inventory")).to_s)
+          notes = []
+          if (m = inv.match(food_kw))
+            send_cmd.call(p.consume("eat", m[0].downcase)); notes << "ate #{m[0].downcase}"
+          end
+          if (m = inv.match(drink_kw))
+            send_cmd.call(p.consume("drink", m[0].downcase)); notes << "drank #{m[0].downcase}"
+          end
+          notes
+        end
+
         remember = lambda do |text, arrived_via: nil, full: false|
           async = last_drained.to_s   # async pushes (e.g. hunger ticks) drained before this command
           note = begin
@@ -233,8 +248,13 @@ module Boukensha
         # event: combat, a blocked exit, or arriving off-map.
         full_dir   = { "n" => "north", "s" => "south", "e" => "east",
                        "w" => "west", "u" => "up", "d" => "down" }
+        opp_dir    = { "n" => "south", "s" => "north", "e" => "west",
+                       "w" => "east", "u" => "down", "d" => "up" }
         combat_re  = /\b(?:hits?|bashes?|bites?|claws?|attacks?|strikes?|slashes?|pierces?|crushes?|pounds?|mauls?|smites?)\s+you\b|\byou\s+are\s+attacked\b|\byou\s+have\s+been\s+(?:killed|attacked)\b/i
         blocked_re = /\b(?:cannot\s+go\s+that\s+way|the\s+door\s+is\s+closed|it\s+seems\s+to\s+be\s+closed|isn'?t\s+open)\b/i
+        # The MUD hides an over-level zone: every room there shows this instead of
+        # its real name. A hard "do not grind here" signal we can back out of.
+        overlevel_re = /above your recommended level/i
 
         # Walk a known route one room at a time, feeding each new room to the
         # world-model and keeping move_pts current. Returns [walked_dirs, interrupt]
@@ -356,6 +376,15 @@ module Boukensha
             return "Explored #{dir} from room ##{before} — blocked (won't retry it): #{body.lines.first&.strip}"
           end
 
+          if body =~ overlevel_re
+            # Stepped into an over-level zone the MUD hides from us — dangerous. Back
+            # out the way we came and mark the exit off-limits so we never grind there.
+            back = opp_dir[norm]
+            world.observe(send_cmd.call(p.move(back))) if back
+            world.mark_blocked(short, from_fp: world.fp_for_id(before), reason: "above your level")
+            return "Explored #{dir} from room ##{before} — that zone is ABOVE your level (backed out, won't retry). Try another direction, or hunt elsewhere."
+          end
+
           prefix = walked.empty? ? "" : "Walked #{walked.join(' → ')} to the frontier, then "
           tail   = body =~ combat_re ? " — COMBAT, your call" : ""
           "#{prefix}stepped #{dir} into new territory#{tail} (now room ##{world.current_id}).\n#{enriched}"
@@ -390,13 +419,23 @@ module Boukensha
         # safe prey (→ fight), gets attacked, runs out of movement, or exhausts the
         # search. One agent decision instead of dozens of move+consider calls.
         hunt = lambda do |max_rooms:|
-          seen  = []   # unsafe mobs passed, for the report
-          route = []   # rooms searched
+          seen     = []   # unsafe mobs passed, for the report
+          route    = []   # rooms searched
+          hp_of    = ->(t) { (m = MudText.strip_ansi(t.to_s)[/(\d+)H\s+\d+M\s+\d+V/, 1]) && m.to_i }
+          start_hp = nil
           max_rooms.times do
             raw = send_cmd.call(p.look)
             world.observe(raw)
             hid = world.current_id
             route << hid
+
+            # Safety: bleeding HP while wandering means we're passing through mobs
+            # that hit us. Stop before a search turns into a death march.
+            hp = hp_of.call(raw)
+            start_hp ||= hp
+            if hp && start_hp && (hp <= 10 || hp <= start_hp / 2)
+              return "Stopped hunting — you're taking damage while searching (HP down to #{hp} from #{start_hp}). This area isn't safe to wander. Rest somewhere safe, then hunt from a calmer spot (or teleport MIDGAARD and grind near town)."
+            end
             world.mob_keyword_sets(raw).each do |kwset|
               hit = consider_mob.call(kwset)
               next unless hit
@@ -558,10 +597,18 @@ module Boukensha
           # HP — following it and finishing the kill is fast and free xp. Bounded so a
           # mob can't lead Perry on a long march into danger; wimpy still guards HP.
           chased = 0
+          flee_dir = /\bflee[sd]?\s+(?:to\s+the\s+)?(north|south|east|west|up|down)\b/i
           while chased < 3 && rounds !~ kill_re && rounds !~ death_re &&
                 rounds !~ you_fled && rounds =~ mob_fled
-            dir = rounds[/\bflee[sd]?\s+(?:to\s+the\s+)?(north|south|east|west|up|down)\b/i, 1]&.downcase
-            break unless dir   # it fled but we can't tell which way — let it go
+            dir = rounds[flee_dir, 1]&.downcase
+            if dir.nil?
+              # The "… flees east" line often lands a beat AFTER "panics, and
+              # attempts to flee" (which already broke the poll). Read a moment more
+              # to catch the direction before giving up the chase.
+              rounds << session.read_until_quiet(1.0, timeout: 3)
+              dir = rounds[flee_dir, 1]&.downcase
+            end
+            break unless dir   # it fled but we truly can't tell which way — let it go
             follow = MudText.strip_ansi(send_cmd.call(p.move(dir)))
             world.observe(follow)
             break if follow =~ /you (?:cannot|can'?t) go|Alas|too dark|pitch black/i
@@ -790,38 +837,67 @@ module Boukensha
         end
 
         registry.tool "rest_until",
-          description: "Recover movement points by resting. Sits and rests to regenerate movement, " \
-                       "polling until you reach the target (or regen stalls), then stands back up. Use " \
-                       "before a trip that travel_to says you can't afford — but only when the room is " \
-                       "safe, since resting spends in-game time.",
+          description: "Recover by resting. Rests to regenerate movement (and HP along with it), " \
+                       "polling until the target (or regen stalls), then stands. It first checks the " \
+                       "room is SAFE and that hunger/thirst won't block regen (eating/drinking your " \
+                       "supplies as needed). Rest between fights when you're hurt — but it will refuse " \
+                       "if you're in danger, telling you to reach safety first.",
           parameters: {
             movement: { type: "integer", description: "Target movement points to reach before standing" }
           } do |movement:|
           next guard.call if guard.call
           target = movement.to_i
+
+          # Safety gate: don't rest into danger. Refuse in an over-level zone or if
+          # something is on us — resting there just gets Perry killed.
+          here = MudText.strip_ansi(send_cmd.call(p.look))
+          if here =~ overlevel_re
+            next "Won't rest here — this zone is above your level (unsafe). teleport MIDGAARD or move to a safe room first, then rest."
+          end
+          if here =~ combat_re
+            next "Won't rest — you're under attack. Deal with the threat (fight or flee) before resting."
+          end
+
+          # Make sure hunger/thirst won't block regen (proactive eat/drink).
+          fed = provision.call
+
           send_cmd.call(p.set_position("rest"))
-          start  = parse_v.call(send_cmd.call(p.info_self("score"))).to_i
-          last   = start
-          stalls = 0
+          start       = parse_v.call(send_cmd.call(p.info_self("score"))).to_i
+          last        = start
+          stalls      = 0
+          interrupted = false
           # Poll ~15s apart so each wait can span a regen tick (~75s in CircleMUD);
           # give up only after several consecutive no-gain checks.
           12.times do
             break if last >= target
             sleep 15
-            v = parse_v.call(send_cmd.call(p.info_self("score"))).to_i
-            stalls = v > last ? 0 : stalls + 1
-            last   = v
+            score = MudText.strip_ansi(send_cmd.call(p.info_self("score")))
+            # Interrupted by combat mid-rest — stop before we sleep through a fight.
+            if score =~ combat_re || score =~ /you are fighting/i
+              interrupted = true
+              break
+            end
+            v = parse_v.call(score).to_i
+            if v <= last            # regen stalled — likely hunger/thirst; provision and retry
+              fed |= provision.call
+              stalls += 1
+            else
+              stalls = 0
+            end
+            last = v
             break if stalls >= 6
           end
           send_cmd.call(p.set_position("stand"))
           move_pts = last
+          next "Rest interrupted — a fight started (now at #{last} movement). Standing. Handle it, then rest again when safe." if interrupted
+          ate = fed.empty? ? "" : " (#{fed.uniq.join(', ')})"
           if last >= target
-            "Rested to #{last} movement points. Standing, ready to travel."
+            "Rested to #{last} movement points#{ate}. Standing, ready."
           elsif last > start
-            "Rested to #{last} movement points (target #{target} not fully reached; regen is slow). Standing."
+            "Rested to #{last} movement points#{ate} (target #{target} not fully reached; regen is slow). Standing."
           else
-            "No movement recovered (now #{last}). Regen may be blocked — check hunger/thirst (eat/drink) " \
-            "or the room may be interrupting rest. Standing."
+            "No movement recovered (now #{last})#{ate}. Regen may be blocked — you may be out of food/water, " \
+            "or the room keeps interrupting rest. Standing."
           end
         end
 

@@ -417,6 +417,28 @@ damage** mid-search; (3) fix the **chase-direction timing** (read the "flees <di
 before parsing). A deeper fix: **remember safe grind spots** (tag rooms where consider-
 safe prey was found) so the agent returns instead of re-exploring blind.
 
+### Slice D — prey-finding safety + rest discipline (built, unit-tested) — 2026-07-28
+Built the fixes Obs B2 demanded, all deterministic:
+1. **`explore` backs out of over-level zones.** The MUD hides an over-level zone by
+   replacing every room name with *"This zone is above your recommended level."* —
+   `explore` now detects that, steps back the way it came, and marks the exit off-limits.
+   So `hunt` can't wander Perry into Black-Knight territory.
+2. **`hunt` stops if Perry takes damage while searching.** It tracks HP each room and
+   halts if HP falls to ≤10 or ≤half of where it started (the 37→11 bleed) — "this area
+   isn't safe to wander, rest somewhere safe."
+3. **Chase-direction timing fixed.** When a mob's *"panics"* line breaks the poll before
+   the *"flees <dir>"* line arrives, `fight` now reads a beat more to catch the
+   direction before giving up the chase — so runners actually get chased.
+4. **`rest_until` is now safety- and upkeep-aware** (the user's rest concern): it refuses
+   to rest in an over-level zone or under attack (telling you to reach safety / teleport
+   first), proactively eats/drinks so hunger/thirst don't block regen, and bails if a
+   fight starts mid-rest. Resting now depends explicitly on **safe location + supplies**,
+   not luck.
+
+Unit-tested the pure pieces (over-level detect, HP parse, opposite-dir, damage-stop
+threshold, chase-dir parse); registry loads at 40 tools. Live validation is the next
+run (Obs B3).
+
 ## Technical Conclusions
 
 _(pending — the arc's combat offload is proven; closing the acceptance test now depends
