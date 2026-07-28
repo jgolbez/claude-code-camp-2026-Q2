@@ -368,6 +368,19 @@ zombies. Needs grind-location guidance (or hunt ranging wider). Minor: `travel_t
 "Midgaard Temple"` didn't resolve (room is "The Temple Of Midgaard") → fell back to
 nearest frontier; a name-resolution nicety.
 
+**Post-Obs-B fixes (user-spotted, from the log viewer):**
+1. **`fight` misreported a mob's retreat as Perry fleeing.** The quasit fight ended
+   with Perry at 37/37 yet `fight` said *"Fled… wimpy saved you"* — wrong. Cause:
+   `/PANIC/i` matched the **mob's** *"panics, and attempts to flee"*. Fixed: detect
+   first-person (Perry) vs third-person (mob) flees separately, and only claim "wimpy
+   pulled you out" when Perry's HP is actually near the floor. Now a mob escaping reads
+   *"'quasit' panicked and fled — no kill, you're unhurt."* Unit-tested.
+2. **The agent manually fled at high HP instead of trusting wimpy.** The combat prompt
+   was stale (told it to `consider`/`set_wimpy`/`loot`/`flee` by hand — all now done by
+   `fight`). Rewrote it: *use `hunt` then `fight`; the tool runs consider/wimpy/opener/
+   kill/loot; trust the outcome; never manually `flee` at healthy HP — wimpy auto-flees
+   only when a fight truly turns.* This removes the second-guessing the user saw.
+
 ## Technical Conclusions
 
 _(pending — after a clean re-run confirms the offload holds without the `(d)` crash.)_

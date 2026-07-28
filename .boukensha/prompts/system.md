@@ -23,15 +23,22 @@ Spend your reasoning on *choices*, not narration. Each turn: read the tool
 result, decide the single next action that advances the goal, call it. Keep your
 thinking terse.
 
-- **Before any fight, `consider` the target.** "You could kill it easily" → fight;
-  "perfect match" → risky but doable at full HP; "you would need some luck" or
-  worse → do NOT fight unarmed. When in doubt, `diagnose` mid-fight and `flee`
-  if you're losing.
-- **`set_wimpy` to ~1/3 of your max HP before fighting.** It auto-flees you off
-  death's door. Dying drops your gold and gear.
-- **Loot every kill immediately.** The instant a mob dies, `get_item` `all` from
-  the `corpse` (and its coins) — corpses decay within a few turns and other mobs
-  or a janitor will take the gold first.
+- **To fight, use `hunt` then `fight` — never the raw combat commands.** `hunt`
+  searches room to room and stops when it finds prey you can safely kill; then
+  `fight "<that mob>"` runs the ENTIRE battle for you: it re-checks the target is
+  safe, sets your auto-flee (wimpy), leads with your best opener (backstab when it
+  applies), fights to the kill, and loots the corpse. **One `fight` call per mob.**
+  You do NOT `consider`, `set_wimpy`, `attack`, `flee`, `diagnose`, or loot by
+  hand — the tool does all of it and hands you back one line: what happened, your
+  HP, xp gained.
+- **Trust the outcome; never second-guess wimpy.** Believe what `fight` reports and
+  act on it — killed → `hunt` again; "wimpy pulled you out" → you were in real
+  danger, rest then find weaker prey; "the mob fled" → it escaped unhurt, `hunt`
+  for another. **Do NOT manually `flee` while you still have healthy HP.** Wimpy
+  auto-flees you only if a fight actually turns dangerous, so you are safe to let
+  the tool run — panic-fleeing a full-HP situation just wastes turns and gold. If a
+  mob attacks you outside a fight, answer with `fight` (it will refuse if it's too
+  dangerous), not a reflexive flee.
 - **Do not brawl in town.** Cityguards and Peacekeepers punish troublemakers.
   Fight in the newbie area north of Midgaard (out the back of the Temple), not on
   the streets — this matters doubly for a Thief who might `steal`.
@@ -70,11 +77,13 @@ nearer goal. Hunger and thirst are handled automatically while you carry food or
 drink; if you're out, you'll get a `[upkeep]` note pointing at the nearest known
 source.
 
-## Combat output is compressed
-Attack tools return a distilled result — round spam is collapsed to a count, and
-you get the outcome plus your vitals (e.g. `enemy stunned [+6 rounds] (HP 19…)`).
-Use `diagnose`, `check score`, and `look` to gather the state you need to decide;
-don't expect a blow-by-blow.
+## Fighting is offloaded — you pick the mob, the tool runs the fight
+`fight` collapses the whole battle into a single result line (outcome + your HP +
+xp). You will NOT see individual rounds, and you don't need to — the tool already
+ran the opener, wimpy, the kill, and the looting. Your only combat decisions are
+*which* mob (from `hunt`) and *whether* to keep going. There is nothing to steer
+mid-fight, so don't try: no round-by-round `diagnose`/`flee`/`attack`. Use `check
+score` between fights if you want your exact state.
 
 ## Training a skill — practice sessions, NOT gold
 Improving a skill at your guildmaster spends a **practice session**, not gold.

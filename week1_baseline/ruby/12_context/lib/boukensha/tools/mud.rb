@@ -486,7 +486,8 @@ module Boukensha
 
           before = score_stats.call
           # Deterministic wimpy floor ≈ 1/3 max HP (fires before a lethal hit lands).
-          send_cmd.call("toggle wimpy #{[(before[:maxhp].to_i / 3.0).ceil, 1].max}") if before[:maxhp]
+          wimpy_floor = before[:maxhp] ? [(before[:maxhp] / 3.0).ceil, 1].max : nil
+          send_cmd.call("toggle wimpy #{wimpy_floor}") if wimpy_floor
 
           # Skill-aware opener.
           opener_note = "plain attack"
@@ -533,18 +534,25 @@ module Boukensha
           # Poll the MUD's auto-rounds until an outcome or things go quiet.
           rounds   = +""
           deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 35
+          # Perry fleeing (wimpy or a failed escape) is first-person; a MOB fleeing
+          # is third-person ("… panics, and attempts to flee"). Detect them apart so
+          # we don't misreport a mob's retreat as Perry bailing.
+          you_fled  = /\byou flee\b|you flee head over heels|you couldn'?t escape|PANIC! you/i
+          mob_fled  = /\bpanics?,?\s+and\s+(?:attempts?\s+to\s+)?flee|\bflees\b|flee[sd]?\s+(?:in\s+terror|to\s+the\b)/i
           loop do
             chunk = session.read_until_quiet(1.4, timeout: 5)
             rounds << chunk
-            break if rounds =~ /is dead|R\.I\.P|you receive|you gain|experience|you flee|PANIC|has been KILLED|you die\b|you are dead/i
+            break if rounds =~ /is dead|R\.I\.P|you receive|you gain|experience|has been KILLED|you are dead/i
+            break if rounds =~ you_fled || rounds =~ mob_fled
             break if chunk.strip.empty?
             break if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
           end
 
-          killed = rounds =~ /is dead|R\.I\.P|you receive your|you gain|slain|experience/i
-          fled   = rounds =~ /you flee|PANIC/i
-          died   = rounds =~ /has been KILLED|you are dead|you die\b/i
-          after  = score_stats.call
+          killed      = rounds =~ /is dead|R\.I\.P|you receive your|you gain|slain|experience/i
+          died        = rounds =~ /has been KILLED|you are dead|you die\b/i
+          perry_fled  = !killed && rounds =~ you_fled
+          quarry_fled = !killed && !perry_fled && rounds =~ mob_fled
+          after       = score_stats.call
 
           # Auto-loot on a kill (items + any coins).
           if killed
@@ -557,6 +565,8 @@ module Boukensha
           vit     = after[:hp] && after[:maxhp] ? "HP #{after[:hp]}/#{after[:maxhp]}" : nil
           xpline  = dxp ? "+#{dxp} xp" : "xp unchanged"
           nextl   = after[:need] ? " (#{after[:need]} to next level)" : ""
+          # Did wimpy actually pull Perry out? Only if his HP is down near the floor.
+          low_hp  = after[:hp] && wimpy_floor && after[:hp] <= wimpy_floor + 3
 
           if died
             "You DIED fighting '#{tgt}'. Respawned — your gear is on your corpse. #{vit}."
@@ -564,10 +574,16 @@ module Boukensha
             "Killed '#{tgt}' — #{opener_note}. #{xpline} → LEVEL #{after[:level]}! Looted corpse. #{vit}. You have new practice sessions — train at your guild."
           elsif killed
             "Killed '#{tgt}' — #{opener_note}. #{xpline}#{nextl}. Looted corpse. #{vit}."
-          elsif fled
-            "Fled from '#{tgt}' (#{opener_note}); wimpy saved you. #{vit}. Rest, then pick weaker prey (hunt)."
+          elsif perry_fled
+            if low_hp
+              "Wimpy pulled you out of the fight with '#{tgt}' — HP got dangerously low. #{vit}. Rest to recover, then hunt weaker prey."
+            else
+              "Broke off the fight with '#{tgt}' (#{opener_note}). #{vit} — you're fine, wimpy didn't trigger. Re-engage with fight if you want it, or hunt for another."
+            end
+          elsif quarry_fled
+            "'#{tgt}' panicked and fled — it got away, so no kill and no xp, but you're unhurt. #{vit}. hunt for another target (or chase if you must)."
           else
-            "Fight with '#{tgt}' didn't resolve (#{opener_note}). #{vit}. Diagnose and decide — attack again or flee."
+            "Fight with '#{tgt}' didn't fully resolve (#{opener_note}). #{vit}. If it's still here, fight again; if you're hurt, rest."
           end
         end
 
