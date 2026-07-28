@@ -123,16 +123,83 @@ Supporting bets:
 
 | Slice | What | Why |
 |---|---|---|
-| **Obs A — watch** | Run *"Gain a level and train a skill"* on the current build, unchanged. Tag every stumble **tool gap** vs **misuse**, and note how much combat text the LLM has to read per fight. | Measures the offload gap + the tool/teach ratio before we build anything. |
-| B — deterministic wimpy | Harness hard-sets wimpy = ⌈max_hp/3⌉ on connect and on level-up. No LLM involvement. | Removes the deadliest per-fight decision from the model entirely. |
-| C — fight-to-completion tool | One structured tool: `consider`-gate → engage → poll MUD auto-rounds until death/flee → auto-loot → return one distilled line (outcome + vitals + XP/level delta). LLM calls it once per fight. | Keeps round spam out of the model; the core offload. |
-| D — thin combat policy + XP reporter | Prompt: "call the fight tool, don't hand-type combat; stop when you hit the target level." Add an XP/level reporter only if Obs A showed the agent flying blind on progress. Include the general "raw command = missing tool" nudge. | Minimal teaching, only where the watch proved it's needed. |
-| E — minimal combat state | Only if B–D show the agent needs persistent XP/level/HP-trend to decide. | Guard the "no redesign" bet. |
+| ~~**Obs A — watch**~~ ✅ | Ran the unchanged build. **Verdict:** discipline is fine (0 raw fallbacks, wimpy set, consider obeyed); the budget died in the **search phase** (`move` ×20 hunting for prey). No combat — all newbie-dungeon mobs too tough. | Reordered the slices below: the search offload is now the urgent one. |
+| **B — `hunt` tool** (was C) | Deterministic: from here, step to the next unexplored room → auto-`consider` the mob → repeat until it finds a `consider`-safe target *or* exhausts a bounded range; return "killable X in room N" (or "no safe prey found"). Fixes the `explore` blocked-frontier bug along the way (drop a frontier after a blocked move). | **The thing that actually blew the budget.** Turns 20 LLM iterations into one decision. |
+| **C — `fight` tool** (fight-to-completion) | `consider`-gate → engage → poll MUD auto-rounds until death/flee → auto-loot → one distilled line (outcome + vitals + XP/level delta). LLM calls it once per fight. | The pre-registered core offload; keeps round spam out of the model. |
+| D — deterministic wimpy | Harness hard-sets wimpy = ⌈max_hp/3⌉ on connect and level-up. (Agent already set it correctly in Obs A, so this is belt-and-suspenders, low priority.) | Removes the deadliest per-fight decision entirely. |
+| E — thin policy + XP reporter + grind spot | Prompt: "use `hunt`/`fight`, don't hand-walk; stop at the target level." Point the agent at a **known safe grind spot** (sewer bats?) since the newbie dungeon is too tough. Add "raw command = missing tool" nudge. | Minimal teaching, only where the watch proved it's needed. |
+| F — minimal combat state | Only if B–E show the agent needs persistent XP/level/HP-trend to decide. | Guard the "no redesign" bet. |
 | **Result** | Acceptance test passes: level 2 + one skill trained, no death, near-zero combat tokens. | Closes the Obs 12 loop. |
 
 ## Technical Observations
 
-_(to be filled as we build — Obs A first: the unchanged watch run.)_
+### Baseline (pre-Obs A, 2026-07-28) — Perry rerolled + geared
+The old Perry got stranded off-map in the sewer/abyss maze (hungry, thirsty, no
+route back — `explore` even fixated on a closed rock, retrying a named-but-blocked
+exit forever; logged as a parked nav bug). The user **rerolled him** into a fresh,
+fully newbie-geared level-1 and bought a **teleporter** (`teleport MIDGAARD` = no-move
+recall to the Temple; see [[perry-teleporter-recovery]]).
+
+Real starting state (this replaces the prompt's old "naked, fists, weak-mobs-only"
+description, which was corrected in `prompts/system.md`):
+- **~21 HP, level 1, 536 exp → 714 to level 2** (the grind target).
+- **Armed + armored:** wields a small sword; full newbie leather + shield; a lit
+  **candle** (light — dark rooms no longer block him); spare newbie dagger.
+- **Teleporter** escape hatch (reusable), 2 bread, ~30 gold.
+- Positioned deterministically at **The Temple of Midgaard (#1)**, rested, 85/85 move.
+
+Two findings already, before the LLM runs: (1) survival had **no stranded-recovery**
+— the teleporter now fills that gap and should become a structured tool; (2) the
+`explore` frontier picker retries **named-but-blocked** exits forever — needs to drop
+a frontier after a blocked attempt.
+
+### Obs A — watch run (the unchanged build, corrected baseline) — 2026-07-28
+Task: *"reach level 2, then train a skill."* Perry started at the Temple, geared.
+Ran 34 iterations, stopped on **`max_tokens` (124K > 120K cap)**. **No combat
+happened** — and *that is the finding*.
+
+**What the agent did right (discipline is not the problem):**
+- Set **wimpy = 7** (1/3 max HP) unprompted; used **structured tools throughout**
+  (`equip_item`, `consider`, `check`) — **0 `send_raw` fallbacks.**
+- `consider`ed 5 mobs and correctly refused every one — the whole newbie *dungeon*
+  north of the Temple rated "too tough" / "would need a lot of luck" for a fresh
+  level-1 (newbie monsters, a pet dragon, zombie newbies, quasits, an alchemist).
+- So it never broke the "only fight `consider`-safe mobs" rule. The combat *mechanics*
+  the prompt teaches were followed faithfully.
+
+**Where it burned out — the real gap is the SEARCH phase, not the fight:**
+- Tool histogram: **`move` ×20**, consider ×5, check ×4, equip ×2, look/examine/
+  set_position/set_wimpy ×1. It **hand-walked the dungeon room-by-room with 20 single
+  `move` calls** — the exact anti-pattern the nav policy warns against — instead of
+  `explore`. Those 20 LLM iterations drove the token cap.
+- **Why it didn't `explore`:** searching *for prey* needs to stop in each room, look at
+  the mob, `consider` it, and decide — a per-room consider loop. `explore` barrels to
+  the next frontier with **no consider**; raw `move` gives control but costs a full LLM
+  iteration per step. **Neither tool fits "hunt for a fightable mob."** So this reads as
+  a **high-level tool gap**, not misuse — there is no primitive for the search loop.
+- **Token cap = same cumulative-per-turn sum** (input grew 361→8193/response, ~130K
+  summed; caching worked, `cache_read` 5963/call). 20 hand-walk iterations each
+  re-counted the growing history → the O(n²) wall at iter 34.
+
+**Grind-location finding:** the "newbie dungeon north of the Temple" (what the prompt
+points at) is **too tough for a fresh level-1**. The mobs Perry actually beat last
+reroll were the **sewer bats** (Obs 12) — the irony being the maze we teleported him
+*out* of held the killable prey. The agent needs a known safe grind spot, or a hunt
+tool that ranges until it finds `consider`-safe prey.
+
+**Tool-gap vs. misuse tally (the pre-registered question):** 0 raw fallbacks →
+low-level verbs are fine. The gap is **two high-level aggregating tools** that keep the
+LLM out of the loop:
+1. **`hunt`** — explore one room → auto-`consider` the mob there → repeat until it finds
+   a `consider`-safe target (or exhausts range), returning "found a killable X in
+   room N." One LLM decision instead of 20 `move`s. *(This is the urgent one — it's
+   what actually blew the budget.)*
+2. **`fight`** (fight-to-completion) — the pre-registered wrapper: `consider`-gate →
+   engage → poll MUD auto-rounds → auto-loot → one distilled line.
+
+Both confirm the core hypothesis (combat is decision-*offloading*), and Obs A sharpens
+it: the offload must cover the **search** phase first, because that is where a
+correctly-behaving agent still burns its whole budget.
 
 ## Technical Conclusions
 
