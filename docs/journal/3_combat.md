@@ -380,6 +380,12 @@ nearest frontier; a name-resolution nicety.
    `fight`). Rewrote it: *use `hunt` then `fight`; the tool runs consider/wimpy/opener/
    kill/loot; trust the outcome; never manually `flee` at healthy HP — wimpy auto-flees
    only when a fight truly turns.* This removes the second-guessing the user saw.
+3. **`fight` now CHASES a fleeing mob** (user request). A mob only flees when it's
+   losing, so it's low-HP — free xp if caught. `fight` parses the flee direction from
+   the round text (*"flees east!"*), follows, and finishes the kill; bounded to 3 rooms
+   (so a mob can't march Perry into danger) with wimpy still guarding HP. Reports
+   *"Killed 'quasit' (chased it down 2 rooms)…"* or, if it outran him, *"outran you
+   after N rooms of chase."* Direction-parse + loop unit-tested.
 
 ## Technical Conclusions
 

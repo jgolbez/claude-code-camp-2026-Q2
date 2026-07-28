@@ -529,32 +529,56 @@ module Boukensha
             send_cmd.call(p.equip("wield", main_kw)) if swapped && main_kw
           end
 
-          send_cmd.call(p.attack("kill", tgt)) unless struck
+          # Outcome patterns. Perry fleeing (wimpy / failed escape) is first-person;
+          # a MOB fleeing is third-person ("… panics, and attempts to flee. … flees
+          # east!") — detect them apart so a mob's retreat isn't read as Perry bailing.
+          kill_re  = /is dead|R\.I\.P|you receive your|you gain|slain|experience/i
+          death_re = /has been KILLED|you are dead|you die\b/i
+          you_fled = /\byou flee\b|you flee head over heels|you couldn'?t escape|PANIC! you/i
+          mob_fled = /\bpanics?,?\s+and\s+(?:attempts?\s+to\s+)?flee|\bflees\b|flee[sd]?\s+(?:in\s+terror|to\s+the\b)/i
 
           # Poll the MUD's auto-rounds until an outcome or things go quiet.
-          rounds   = +""
-          deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 35
-          # Perry fleeing (wimpy or a failed escape) is first-person; a MOB fleeing
-          # is third-person ("… panics, and attempts to flee"). Detect them apart so
-          # we don't misreport a mob's retreat as Perry bailing.
-          you_fled  = /\byou flee\b|you flee head over heels|you couldn'?t escape|PANIC! you/i
-          mob_fled  = /\bpanics?,?\s+and\s+(?:attempts?\s+to\s+)?flee|\bflees\b|flee[sd]?\s+(?:in\s+terror|to\s+the\b)/i
-          loop do
-            chunk = session.read_until_quiet(1.4, timeout: 5)
-            rounds << chunk
-            break if rounds =~ /is dead|R\.I\.P|you receive|you gain|experience|has been KILLED|you are dead/i
-            break if rounds =~ you_fled || rounds =~ mob_fled
-            break if chunk.strip.empty?
-            break if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+          run_rounds = lambda do
+            acc = +""
+            dl  = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 30
+            loop do
+              chunk = session.read_until_quiet(1.4, timeout: 5)
+              acc << chunk
+              break if acc =~ kill_re || acc =~ death_re || acc =~ you_fled || acc =~ mob_fled
+              break if chunk.strip.empty?
+              break if Process.clock_gettime(Process::CLOCK_MONOTONIC) > dl
+            end
+            acc
           end
 
-          killed      = rounds =~ /is dead|R\.I\.P|you receive your|you gain|slain|experience/i
-          died        = rounds =~ /has been KILLED|you are dead|you die\b/i
+          send_cmd.call(p.attack("kill", tgt)) unless struck
+          rounds = run_rounds.call
+
+          # CHASE a fleeing quarry. A mob only flees when it's losing, so it's low on
+          # HP — following it and finishing the kill is fast and free xp. Bounded so a
+          # mob can't lead Perry on a long march into danger; wimpy still guards HP.
+          chased = 0
+          while chased < 3 && rounds !~ kill_re && rounds !~ death_re &&
+                rounds !~ you_fled && rounds =~ mob_fled
+            dir = rounds[/\bflee[sd]?\s+(?:to\s+the\s+)?(north|south|east|west|up|down)\b/i, 1]&.downcase
+            break unless dir   # it fled but we can't tell which way — let it go
+            follow = MudText.strip_ansi(send_cmd.call(p.move(dir)))
+            world.observe(follow)
+            break if follow =~ /you (?:cannot|can'?t) go|Alas|too dark|pitch black/i
+            strike = MudText.strip_ansi(send_cmd.call(p.attack("kill", tgt)))
+            break if strike =~ /they aren'?t here|no ?one (?:by that|here)|isn'?t here|not here/i  # lost it
+            rounds = strike + run_rounds.call
+            chased += 1
+          end
+
+          killed      = rounds =~ kill_re
+          died        = rounds =~ death_re
           perry_fled  = !killed && rounds =~ you_fled
           quarry_fled = !killed && !perry_fled && rounds =~ mob_fled
           after       = score_stats.call
+          chase_note  = chased.positive? ? " (chased it down #{chased} room#{chased == 1 ? '' : 's'})" : ""
 
-          # Auto-loot on a kill (items + any coins).
+          # Auto-loot on a kill (items + any coins). Perry is in the room where it died.
           if killed
             send_cmd.call(p.get("all", container: "corpse"))
             send_cmd.call(p.get("coins", container: "corpse"))
@@ -571,9 +595,9 @@ module Boukensha
           if died
             "You DIED fighting '#{tgt}'. Respawned — your gear is on your corpse. #{vit}."
           elsif leveled
-            "Killed '#{tgt}' — #{opener_note}. #{xpline} → LEVEL #{after[:level]}! Looted corpse. #{vit}. You have new practice sessions — train at your guild."
+            "Killed '#{tgt}'#{chase_note} — #{opener_note}. #{xpline} → LEVEL #{after[:level]}! Looted corpse. #{vit}. You have new practice sessions — train at your guild."
           elsif killed
-            "Killed '#{tgt}' — #{opener_note}. #{xpline}#{nextl}. Looted corpse. #{vit}."
+            "Killed '#{tgt}'#{chase_note} — #{opener_note}. #{xpline}#{nextl}. Looted corpse. #{vit}."
           elsif perry_fled
             if low_hp
               "Wimpy pulled you out of the fight with '#{tgt}' — HP got dangerously low. #{vit}. Rest to recover, then hunt weaker prey."
@@ -581,7 +605,8 @@ module Boukensha
               "Broke off the fight with '#{tgt}' (#{opener_note}). #{vit} — you're fine, wimpy didn't trigger. Re-engage with fight if you want it, or hunt for another."
             end
           elsif quarry_fled
-            "'#{tgt}' panicked and fled — it got away, so no kill and no xp, but you're unhurt. #{vit}. hunt for another target (or chase if you must)."
+            tail = chased.positive? ? "outran you after #{chased} room#{chased == 1 ? '' : 's'} of chase" : "panicked and fled before you could pin it"
+            "'#{tgt}' #{tail} — no kill, no xp, but you're unhurt. #{vit}. hunt for another target."
           else
             "Fight with '#{tgt}' didn't fully resolve (#{opener_note}). #{vit}. If it's still here, fight again; if you're hurt, rest."
           end
