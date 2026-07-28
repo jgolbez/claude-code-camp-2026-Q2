@@ -468,7 +468,6 @@ module Boukensha
         # safe prey (→ fight), gets attacked, runs out of movement, or exhausts the
         # search. One agent decision instead of dozens of move+consider calls.
         hunt = lambda do |max_rooms:|
-          seen     = []   # unsafe mobs passed, for the report
           cond     = nil  # Perry's condition, computed lazily once per hunt
           hp_of    = ->(t) { (m = MudText.strip_ansi(t.to_s)[/(\d+)H\s+\d+M\s+\d+V/, 1]) && m.to_i }
           start_hp = nil
@@ -487,9 +486,13 @@ module Boukensha
           # mob for the xp, skipping trivially-easy ones (below the floor), and gating
           # perfect-match/risky on being topped up. Returns { kw:, rating:, pref:, hid: }
           # or { combat: msg } or nil. Town/guarded rooms are skipped.
+          # Records, for observability, the mobs hunt looked at and did NOT pick, with
+          # the reason — so the decision ("passed up a weak creepy for the monster") is
+          # visible in the result, not just inside the tool.
+          passed = []
           best_prey_here = lambda do |raw, hid|
             return nil if raw =~ /peacekeeper|cityguard|city\s*guard/i
-            best = nil
+            engageable = []
             world.mob_keyword_sets(raw).each do |kwset|
               hit = consider_mob.call(kwset)
               next unless hit
@@ -498,20 +501,26 @@ module Boukensha
                 return { combat: "Attacked while hunting — an aggressive mob in #{world.name_for_id(hid)} (##{hid}) is on you: #{rating}\n→ call fight to kill it, or flee." }
               end
               pref = prey_pref.call(rating)
-              next if pref.nil?                                   # unsafe / no such mob
-              if pref <= 0.0                                      # too trivial — not worth our time
-                seen << "#{kw} — \"#{rating}\" (too trivial to bother)"; next
+              if pref.nil?                                        # too dangerous
+                passed << "#{kw} (\"#{rating}\", too tough)"; next
+              end
+              if pref <= 0.0                                      # below the floor — not worth the time
+                passed << "#{kw} (\"#{rating}\", too trivial)"; next
               end
               if pref >= 3.0 || pref == 0.5                       # perfect-match / risky need full HP
                 cond = good_condition.call if cond.nil?
-                (seen << "#{kw} — \"#{rating}\" (only when topped up)"; next) unless cond
+                (passed << "#{kw} (\"#{rating}\", only at full HP)"; next) unless cond
               end
-              best = { kw: kw, rating: rating, pref: pref, hid: hid } if best.nil? || pref > best[:pref]
+              engageable << { kw: kw, rating: rating, pref: pref, hid: hid }
             end
+            return nil if engageable.empty?
+            best = engageable.max_by { |e| e[:pref] }
+            (engageable - [best]).each { |e| passed << "#{e[:kw]} (\"#{e[:rating]}\", weaker — took the tougher one)" }
             best
           end
 
-          # Build the "found prey" reply from a best-prey hash, and tag the grind spot.
+          # Build the "found prey" reply — including what hunt PASSED UP to pick this
+          # one — and tag the grind spot.
           found_msg = lambda do |b|
             world.mark_prey(tier: (b[:pref] >= 3 ? :even : b[:pref] <= 0.5 ? :risky : :safe), note: b[:kw])
             note = if    b[:pref] >= 3.0 then " A PERFECT MATCH — best xp, winnable at full HP."
@@ -519,7 +528,9 @@ module Boukensha
                    elsif b[:pref] == 0.5 then " RISKIER (\"some luck\") but you're topped up; wimpy guards it."
                    else ""
                    end
-            "Found prey: '#{b[:kw]}' in #{world.name_for_id(b[:hid])} (##{b[:hid]}). consider: \"#{b[:rating]}\".#{note}\n→ call fight with target \"#{b[:kw]}\"."
+            skipped = passed.uniq.reject { |s| s.start_with?("#{b[:kw]} ") }.first(5)
+            pline   = skipped.empty? ? "" : "\n[chose it over: #{skipped.join('; ')}]"
+            "Found prey: '#{b[:kw]}' in #{world.name_for_id(b[:hid])} (##{b[:hid]}). consider: \"#{b[:rating]}\".#{note}#{pline}\n→ call fight with target \"#{b[:kw]}\"."
           end
 
           # ── Mode 1: KNOWN GRIND SPOTS → cycle them, never blind-wander ──────
@@ -549,6 +560,7 @@ module Boukensha
                 # no point searching further. Trivial/easy/risky prey we remember and
                 # keep checking the other spots for something better.
                 return found_msg.call(res) if res[:pref] >= 2.0
+                passed << "#{res[:kw]} (\"#{res[:rating]}\", kept looking elsewhere for better)"
               end
               checked << world.current_id
             end
@@ -589,7 +601,7 @@ module Boukensha
               return "Hunt paused — not enough movement to search further. #{step}"
             end
           end
-          detail = seen.empty? ? "no mobs at all" : "only mobs not worth fighting: #{seen.uniq.first(6).join('; ')}"
+          detail = passed.empty? ? "no mobs at all" : "only mobs not worth fighting: #{passed.uniq.first(6).join('; ')}"
           "No worthwhile prey found after searching #{route.uniq.size} room#{route.uniq.size == 1 ? '' : 's'} (#{route.uniq.map { |x| "##{x}" }.join(', ')}). Found #{detail}.\n→ Relocate to the newbie zone (level 1–5 grind) and hunt there — don't wander into unknown areas."
         end
 
