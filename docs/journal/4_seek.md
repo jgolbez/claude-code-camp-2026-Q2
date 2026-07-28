@@ -102,3 +102,43 @@ directional-intuition worry (reasoning over room descriptions) was correctly avo
 the room *name* + existing guards carry the signal for free, and course-correction rides
 at the call level (shape summary), never per room. `seek` is the last piece that lets the
 agent *reach anywhere it's heard of* on its own — no more parking Perry.
+
+## Survival layer completed — heal, and safe sleep (2026-07-28)
+
+A capstone test (fresh map: *find the newbie area, kill 3 monsters*) exposed the last
+gap and its safety follow-on:
+
+- **`rest_until` couldn't heal.** It only targeted *movement* — it stood Perry up the
+  moment movement was topped, before HP recovered, so he got stuck at 9 HP with no tool
+  to heal. Fixed: `rest_until hp: <target>` **sleeps** (fastest HP regen), auto-caps near
+  85% of max (the last stretch crawls), provisions (eat/drink), and wakes if a fight
+  starts. Validated: Perry 9/44 → 44/44 in 1.8 min.
+- **Safe sleep (user catch).** Sleeping leaves you *unaware* — and the guard only checked
+  over-level + active combat, not whether a **mob was present**. In the first capstone
+  Perry slept at 9 HP in the same room as the monster he'd fled. Fixed: refuse to
+  rest/sleep if any live mob is in the room (corpses/objects ignored); and **wake→stand
+  first** (CircleMUD `stand` can't wake a sleeper, which had blinded the room-check) so
+  Perry is never left asleep and vulnerable. Both unit-tested; the mob-refusal **fired
+  live** in the clean capstone (*"Not safe to rest here — there's something in the room…
+  move to an EMPTY room first"*).
+
+## Capstone — the whole toolkit, autonomous, on a blank map
+
+Two fresh-map runs (*find the newbie area, kill 3 monsters*, no seeds, no parking):
+- **Discovery ✓** — Perry navigated to the newbie zone himself (Temple → altar → fields →
+  passage), `hunt` found prey.
+- **Combat ✓** — clean backstab kills at full HP.
+- **Anti-wandering ✓** — every dry hunt returned *"known grind spots are clear — rest for
+  respawns"*; it cycled tagged rooms and **never wandered into town / sewer / chessboard**.
+- **Survival ✓** — healed between fights; refused to sleep near a mob.
+- **9 live runs, zero deaths.**
+
+Both runs landed **2/3** — blocked not by any tool but by **respawn pacing** (Perry kills
+the newbie creepies faster than a ~5-min run lets them respawn). The loop is flawless;
+the last kill just needs the game's respawn clock (or more grind rooms — a parked
+follow-up: let known-spots mode do a *bounded* nearby explore for more prey before
+resting).
+
+**Section complete.** The toolkit — `move · travel_to · explore · hunt · fight · seek` —
+plus the survival layer (wimpy · provision · **heal** · **safe sleep**) is built, proven,
+and journaled. Navigation → combat: done. Next ability: **planning**.

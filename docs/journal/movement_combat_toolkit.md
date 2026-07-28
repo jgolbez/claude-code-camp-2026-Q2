@@ -64,7 +64,7 @@ summary, never per-room LLM reasoning. Once found, the place is on the map forev
 ## The safety stack — keeping a fragile Thief alive
 
 Perry has ~23–44 HP and dies losing his gear. Every guard is deterministic and stacks
-under the tools. Result: **zero deaths across seven live runs.**
+under the tools. Result: **zero deaths across nine live runs.**
 
 Consider ladder (the game's own ratings drive engagement): **safe** → fight ·
 **even** (perfect match) → fight at full HP · **some luck** → only if topped up ·
@@ -73,6 +73,8 @@ Consider ladder (the game's own ratings drive engagement): **safe** → fight ·
 - Consider-gate before every fight
 - Deterministic wimpy (auto-flee floor ≈ ⌈maxHP/3⌉)
 - Mob-flee vs. Perry-flee reported truthfully (no false "wimpy saved you")
+- **Heal to a target** — `rest_until hp:` sleeps to ~85% of max, provisioning as needed
+- **Safe sleep** — refuse to rest/sleep with a mob in the room (never heal into an ambush)
 - Over-level zones (`"above your recommended level"`) — backed out, exit marked off-limits
 - Death-trap rooms (Mid-Air zeroes HP) — teleport out, exit marked forever
 - Peacekeeper / town rooms — never grind (guards gang up on alignment drop)
@@ -110,9 +112,19 @@ seek "Thieves" → guildmaster (The Secret Yard) → practice backstab
 
 The mechanics moved into the tools; the decisions stayed with the model.
 
+### Capstone — the whole toolkit, autonomous, on a blank map
+A final test wiped the map and gave Perry a bare goal — *find the newbie area, kill 3
+monsters* — no seeds, no parking. He **discovered** the newbie zone himself, **killed**
+creepies at full HP, **healed** between fights, **refused to sleep next to a mob**, and
+**never wandered** into town/sewer/chessboard (dry hunts → "rest for respawns"). It
+landed 2 of 3 — blocked only by the game's **respawn clock** (a ~5-min run out-kills the
+spawns), not by any tool. Discover → fight → heal → stay safe → don't wander, all on its
+own.
+
 ## The toolkit, in one line
 
-`move` · `travel_to` · `explore` · `hunt` · `fight` · `seek` — a fragile level-1 Thief,
-driven by an LLM that makes one choice per mob and one per destination, grinds to
-level 4 and trains, while the tools and the game do the walking, the fighting, and the
+`move` · `travel_to` · `explore` · `hunt` · `fight` · `seek`, over a survival layer of
+wimpy · provision · heal · safe-sleep — a fragile level-1 Thief, driven by an LLM that
+makes one choice per mob and one per destination, grinds to level 4, trains, and hunts a
+blank map on its own, while the tools and the game do the walking, the fighting, and the
 finding. **navigation → combat → planning**; two of three abilities are done.
