@@ -1,10 +1,11 @@
 # Week 3: Combat & Leveling — earning the right to train
 
-> **Status:** ✅ **Level 4 reached (Obs B7)** — combat offload proven end to end; the
-> only piece left of the acceptance test is *training* the skill, which is blocked on
-> re-finding the Thieves' guild (a navigation task, post map-reset). This is the readable
-> review — the iteration journey, findings, conclusions. The full blow-by-blow (per-slice
-> designs, every observation, the navigation-hardening cluster) lives in
+> **Status:** ✅ **ACCEPTANCE TEST COMPLETE** — Perry reached **level 4** (Obs B7) and
+> **trained a skill** at the Thieves' guild. The last blocker (re-finding the guild on
+> the reset map) was solved by a new `seek` tool — offloaded place-discovery — which
+> found the guild in one call; see [4_seek.md](./4_seek.md). This is the readable review
+> (iteration journey, findings, conclusions); the full blow-by-blow — per-slice designs,
+> every observation, the navigation-hardening cluster — is in
 > [3_combat_detail.md](./3_combat_detail.md).
 
 ## At a glance

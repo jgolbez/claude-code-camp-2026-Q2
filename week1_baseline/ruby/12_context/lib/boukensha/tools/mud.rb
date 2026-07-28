@@ -552,6 +552,44 @@ module Boukensha
           "No safe prey found after searching #{route.uniq.size} room#{route.uniq.size == 1 ? '' : 's'} (#{route.uniq.map { |x| "##{x}" }.join(', ')}). Found #{detail}.\n→ Relocate to the newbie zone (level 1–5 grind) and hunt there — don't wander into unknown areas."
         end
 
+        # SEEK — find a PLACE by name you haven't mapped yet. `explore` in a
+        # deterministic loop: expand the map (inheriting explore's over-level /
+        # death-trap guards) and after each step check whether the named room is now
+        # on the map; stop the moment it is. One LLM decision, zero model tokens for
+        # the walking — `hunt`, but for places instead of prey. On failure it hands
+        # back a SHAPE SUMMARY of the areas it passed so the agent can redirect once
+        # (call-level course-correction), never per-room LLM reasoning.
+        seek = lambda do |name:, max_rooms:|
+          target = name.to_s.strip
+          return "error: no place name to seek" if target.empty?
+          if (known = world.resolve_destination(target))
+            return "You already know #{world.name_for_id(known)} (##{known}) — use travel_to \"#{target}\", no need to seek."
+          end
+          provision.call
+          areas = []
+          max_rooms.times do
+            step = begin
+              explore.call
+            rescue StandardError => e
+              "Nothing left to explore — #{e.class}: #{e.message}"
+            end
+            areas << world.name_for_id(world.current_id) if world.current_id
+            if (found = world.resolve_destination(target))
+              return "Found \"#{target}\" — it's #{world.name_for_id(found)} (##{found}). → travel_to \"#{target}\" to go there (or you may be standing in it)."
+            end
+            case step
+            when /Nothing left to explore|no unexplored exits|search halted/i then break
+            when /COMBAT/i
+              return "Interrupted while seeking — combat at #{world.name_for_id(world.current_id)} (##{world.current_id}). Handle it, then seek \"#{target}\" again."
+            when /Can'?t explore right now/i
+              return "Seek paused — not enough movement. #{step}\nrest_until, then seek \"#{target}\" again."
+            end
+          end
+          shape = areas.compact.uniq.last(6)
+          "Didn't find \"#{target}\" after searching #{areas.compact.uniq.size} rooms. Path drifted through: #{shape.join(' → ')}. " \
+          "If that's the wrong part of the map, travel_to a better hub first (or a landmark nearer the target), then seek \"#{target}\" again; otherwise seek again to keep expanding."
+        end
+
         # ── Combat: skill-aware fight-to-completion ─────────────────────────
 
         # The character's trained skills, read from the game (`practice`) and
@@ -926,6 +964,26 @@ module Boukensha
             hunt.call(max_rooms: (max_rooms || 12).to_i.clamp(1, 40))
           rescue MudManager::Session::Error, ArgumentError => e
             "Hunt stopped on an error (#{e.message}). You're safe where you are — try `look`, then move or hunt again."
+          end
+        end
+
+        registry.tool "seek",
+          description: "FIND a place by name that you have NOT mapped yet — the way to reach a landmark " \
+                       "(a guild, a shop) you've only heard of. It explores the map for you, room by room, " \
+                       "and STOPS the moment it finds a room whose name matches, telling you where it is so " \
+                       "you can travel_to it. Use this instead of calling `explore` over and over by hand to " \
+                       "hunt for somewhere — seek spends NONE of your turn budget on the walking. If it can't " \
+                       "find it in range, it reports which areas it passed through so you can redirect. Once " \
+                       "found, the place is on your map for good (travel_to works after).",
+          parameters: {
+            name:      { type: "string",  description: "Name (or part of it) of the place to find, e.g. \"Thieves\" or \"Thieves guild\"" },
+            max_rooms: { type: "integer", description: "How many rooms to explore before giving up (default 25)" }
+          } do |name:, max_rooms: 25|
+          next guard.call if guard.call
+          begin
+            seek.call(name: name, max_rooms: (max_rooms || 25).to_i.clamp(1, 60))
+          rescue MudManager::Session::Error, ArgumentError => e
+            "Seek stopped on an error (#{e.message}). You're safe — try `look`, then seek again."
           end
         end
 
