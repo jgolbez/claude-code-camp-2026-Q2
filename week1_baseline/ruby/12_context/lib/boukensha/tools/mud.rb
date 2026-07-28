@@ -452,93 +452,89 @@ module Boukensha
         # search. One agent decision instead of dozens of move+consider calls.
         hunt = lambda do |max_rooms:|
           seen     = []   # unsafe mobs passed, for the report
-          route    = []   # rooms searched
           cond     = nil  # Perry's condition, computed lazily once per hunt
           hp_of    = ->(t) { (m = MudText.strip_ansi(t.to_s)[/(\d+)H\s+\d+M\s+\d+V/, 1]) && m.to_i }
           start_hp = nil
 
           # Eat/drink first so hunger/thirst don't throttle movement regen — a
           # common reason a grind session opens with a near-empty movement bar.
-          # Harmless when already fed (the MUD just refuses). Then, if movement is
-          # too low to search, say so up front so the agent rests instead of
-          # hunting on fumes and immediately stalling.
           provision.call
           mv_now = move_pts || parse_v.call(send_cmd.call(p.info_self("score")))
           if mv_now && mv_now < 12 && !world.prey_here?
             move_pts = mv_now
-            return "Low on movement (#{mv_now}) to hunt — I've eaten/drunk so regen isn't blocked. rest_until movement: 60 here (it's safe), then hunt again. (No prey in this exact room to fight right now.)"
+            return "Low on movement (#{mv_now}) to hunt — I've eaten/drunk so regen isn't blocked. rest_until movement: 60 here (it's safe), then hunt again."
           end
 
-          # Reposition to the nearest KNOWN grind spot first — that's where safe prey
-          # actually is, versus exploring blind frontiers into who-knows-what (the
-          # Obs B3 chessboard detour). Skip if we're already at/near one or can't
-          # afford the walk; the normal search below still runs from wherever we end.
-          pr = world.nearest_prey_route
-          if pr && !pr[0].empty?
-            est = world.route_cost(pr[0])
-            walk_route.call(pr[0]) if move_pts.nil? || est[:total] <= move_pts
-          end
-
-          max_rooms.times do
-            raw = send_cmd.call(p.look)
-            world.observe(raw)
-            hid = world.current_id
-            route << hid
-
-            # Safety: bleeding HP while wandering means we're passing through mobs
-            # that hit us. Stop before a search turns into a death march.
-            hp = hp_of.call(raw)
-            start_hp ||= hp
-            if hp && start_hp && (hp <= 10 || hp <= start_hp / 2)
-              return "Stopped hunting — you're taking damage while searching (HP down to #{hp} from #{start_hp}). This area isn't safe to wander. Rest somewhere safe, then hunt elsewhere (the newbie zone north of the Temple is the level 1–5 grind)."
-            end
-
-            # Never grind a room the town guards patrol — Peacekeepers/Cityguards
-            # gang in the moment your alignment slips from killing, and can kill a
-            # fragile Thief. `consider` only rates a 1v1, so it can't see this.
-            # Skip such rooms entirely (don't offer or tag prey there).
-            if raw =~ /peacekeeper|cityguard|city\s*guard/i
-              seen << "#{world.name_for_id(hid)} is guarded (Peacekeepers) — skipped: don't grind in town"
-              step = begin
-                explore.call
-              rescue StandardError => e
-                "Nothing left to explore — search halted (#{e.class}: #{e.message})"
-              end
-              break if step =~ /Nothing left to explore|no unexplored exits|search halted/i
-              return "Attacked while hunting — now in #{world.name_for_id(world.current_id)} (##{world.current_id}). Handle it:\n#{step}" if step =~ /COMBAT/i
-              return "Hunt paused — not enough movement. #{step}" if step =~ /Can'?t explore right now/i
-              next
-            end
-
+          # Check ONE room for safe prey. Returns a message to hand back (found prey,
+          # or attacked), or nil to keep searching. Guarded/town rooms are skipped.
+          check_here = lambda do |raw, hid|
+            return nil if raw =~ /peacekeeper|cityguard|city\s*guard/i   # never grind town
             world.mob_keyword_sets(raw).each do |kwset|
               hit = consider_mob.call(kwset)
               next unless hit
               kw, rating, tier = hit
-              # An aggressive mob may attack while we're sizing it up — the
-              # "rating" is then an attack line, not a consider verdict. Stop and
-              # hand back rather than mistaking it for prey data.
               if rating =~ combat_re || rating =~ /swings?\s+at\s+you|takes?\s+a\s+swing|lunges?\s+at\s+you|attacks?\s+you/i
-                return "Attacked while hunting — an aggressive mob in #{world.name_for_id(hid)} (##{hid}) is on you: #{rating}\n→ call fight to kill it, or flee. Your call."
+                return "Attacked while hunting — an aggressive mob in #{world.name_for_id(hid)} (##{hid}) is on you: #{rating}\n→ call fight to kill it, or flee."
               end
-              # :safe is always fair game; :even/:risky only when Perry's topped up
-              # (full HP, movement, fed) — a "some luck" fight is winnable then, and
-              # wimpy still guards the downside.
+              # :safe always; :even/:risky only when Perry's topped up (wimpy guards it).
               engage = tier == :safe
               if !engage && (tier == :even || tier == :risky)
                 cond = good_condition.call if cond.nil?
                 engage = cond
               end
               if engage
-                world.mark_prey(tier: tier, note: kw)   # remember this grind spot
+                world.mark_prey(tier: tier, note: kw)
                 caveat = case tier
-                         when :even  then " It's a PERFECT MATCH (even fight) — you're at full strength, so winnable."
-                         when :risky then " It's RISKIER (\"some luck\") but you're topped up — winnable, and wimpy pulls you out if it turns."
+                         when :even  then " A PERFECT MATCH (even fight) — winnable at full strength."
+                         when :risky then " RISKIER (\"some luck\") but you're topped up — winnable, wimpy guards the downside."
                          else ""
                          end
-                return "Found prey: '#{kw}' in #{world.name_for_id(hid)} (##{hid}). consider says: \"#{rating}\".#{caveat}\n→ call fight with target \"#{kw}\" to engage (it re-considers before committing)."
+                return "Found prey: '#{kw}' in #{world.name_for_id(hid)} (##{hid}). consider: \"#{rating}\".#{caveat}\n→ call fight with target \"#{kw}\"."
               end
-              seen << "#{kw} — \"#{rating}\"#{(tier == :even || tier == :risky) ? ' (only when you\'re at full HP)' : ''}"
+              seen << "#{kw} — \"#{rating}\"#{(tier == :even || tier == :risky) ? ' (only at full HP)' : ''}"
             end
+            nil
+          end
+
+          # ── Mode 1: KNOWN GRIND SPOTS → cycle them, never blind-wander ──────
+          # Once we know where safe prey lives, we ONLY visit those rooms (routing
+          # over the mapped graph). If they're all clear right now, we rest for
+          # respawns rather than exploring into unknown/dangerous territory — the
+          # thing that kept marching Perry into town / the sewer / the chessboard.
+          spots = world.prey_room_ids
+          if spots.any?
+            checked = []
+            ([world.current_id] + spots).compact.uniq.each do |sid|
+              if sid != world.current_id
+                rt = world.route_to(sid)
+                next if rt.nil? || rt.empty?
+                next if move_pts && world.route_cost(rt)[:total] > move_pts   # can't afford; skip, don't strand
+                _walked, interrupt = walk_route.call(rt)
+                return interrupt if interrupt && interrupt =~ /COMBAT/i
+              end
+              raw = send_cmd.call(p.look); world.observe(raw)
+              hp = hp_of.call(raw); start_hp ||= hp
+              return "Stopped hunting — you're taking damage (HP #{hp}). Get to a safe room and rest before hunting again." if hp && start_hp && hp <= [start_hp / 2, 10].max
+              res = check_here.call(raw, world.current_id)
+              return res if res
+              checked << world.current_id
+            end
+            names = checked.uniq.map { |i| "#{world.name_for_id(i)} (##{i})" }
+            return "Your known grind spots (#{names.join(', ')}) are all clear right now — mobs respawn on a timer. rest_until here (it's safe), then hunt again shortly. NOT wandering off — unknown areas are where the danger is."
+          end
+
+          # ── Mode 2: BOOTSTRAP → no grind spot known yet, explore to find one ──
+          route = []
+          max_rooms.times do
+            raw = send_cmd.call(p.look); world.observe(raw)
+            hid = world.current_id
+            route << hid
+            hp = hp_of.call(raw); start_hp ||= hp
+            return "Stopped hunting — you're taking damage while searching (HP #{hp} from #{start_hp}). Rest somewhere safe, then hunt in the newbie zone (the level 1–5 grind)." if hp && start_hp && hp <= [start_hp / 2, 10].max
+
+            res = check_here.call(raw, hid)
+            return res if res
+
             step = begin
               explore.call
             rescue StandardError => e
@@ -552,11 +548,8 @@ module Boukensha
               return "Hunt paused — not enough movement to search further. #{step}"
             end
           end
-          detail = seen.empty? ? "no mobs at all" : "only mobs too strong to fight safely:\n  - #{seen.uniq.first(8).join("\n  - ")}"
-          spots  = world.prey_room_ids.first(3).map { |i| "#{world.name_for_id(i)} (##{i})" }
-          hint   = spots.empty? ? "Relocate to a weaker area, or report the level-up goal blocked." :
-                   "Try a KNOWN grind spot: travel_to #{spots.join(' or ')}, then hunt again."
-          "No safe prey found after searching #{route.uniq.size} room#{route.uniq.size == 1 ? '' : 's'} (#{route.uniq.map { |x| "##{x}" }.join(', ')}). Found #{detail}.\n→ #{hint}"
+          detail = seen.empty? ? "no mobs at all" : "only mobs too strong to fight safely: #{seen.uniq.first(6).join('; ')}"
+          "No safe prey found after searching #{route.uniq.size} room#{route.uniq.size == 1 ? '' : 's'} (#{route.uniq.map { |x| "##{x}" }.join(', ')}). Found #{detail}.\n→ Relocate to the newbie zone (level 1–5 grind) and hunt there — don't wander into unknown areas."
         end
 
         # ── Combat: skill-aware fight-to-completion ─────────────────────────
