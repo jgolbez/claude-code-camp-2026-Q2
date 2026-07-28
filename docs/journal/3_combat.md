@@ -387,9 +387,40 @@ nearest frontier; a name-resolution nicety.
    *"Killed 'quasit' (chased it down 2 rooms)…"* or, if it outran him, *"outran you
    after N rooms of chase."* Direction-parse + loop unit-tested.
 
+### Obs B2 — clean re-run: no crash, but the blocker moved to PREY-FINDING — 2026-07-28
+All four fixes held: **no `(d)` crash**, accurate flee reporting, teleporter escape from
+the Black Knight zone, **no death**. But the agent still didn't reach level 4 — and the
+flow-trace shows *why*, and it isn't combat:
+
+- **hunt from the grind spot found nothing** (iter 2: "no mobs at all" at #91 — the
+  clueless newbie had despawned/moved; only its corpse remained). The safe prey is
+  **sparse and mobile**; there's no reliable standing target.
+- **hunt wanders INTO danger.** Searching for prey (iter 6) it explored 10 rooms of the
+  adjacent too-tough zone and Perry came out at **11/37 HP** — aggressive mobs chipped
+  him *as hunt walked through*. hunt's blind frontier-following has no "this hurts, back
+  out" reflex, and the newbie zone connects upward into Black-Knight/chessboard zones the
+  MUD flags **"This zone is above your recommended level."**
+- **Combat itself worked** where it got a shot: found a fido "Easy", but **the chase
+  didn't fire** — *"panicked and fled before you could pin it"* (chased=0). Bug: the
+  round-poll breaks the moment it sees *"panics"* (mob_fled), **before** the *"flees
+  east"* direction line arrives, so there's no direction to chase. (Fidos are town
+  scavengers anyway — wrong prey, and Main Street has Cityguards.)
+- **Token cap again (122K)** — driven by navigation flailing (move ×10, look ×5) and a
+  big final `travel_to` (the map is now large; one call cost 8K tokens).
+
+**Diagnosis:** the combat-offload thesis is *proven* (Obs B iters 3–4 + the live fight
+test); what's left is a **navigation / prey-availability** problem — the agent can't
+reliably *find and hold* safe prey, and hunt actively drifts into over-level zones. Three
+fixes, in leverage order: (1) hunt/explore **respect the MUD's "above your recommended
+level" signal** — refuse to search there, back out; (2) hunt **stops if Perry takes
+damage** mid-search; (3) fix the **chase-direction timing** (read the "flees <dir>" line
+before parsing). A deeper fix: **remember safe grind spots** (tag rooms where consider-
+safe prey was found) so the agent returns instead of re-exploring blind.
+
 ## Technical Conclusions
 
-_(pending — after a clean re-run confirms the offload holds without the `(d)` crash.)_
+_(pending — the arc's combat offload is proven; closing the acceptance test now depends
+on the prey-finding fixes above, which straddle back into navigation.)_
 
 ## Key Takeaway
 
