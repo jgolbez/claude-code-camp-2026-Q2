@@ -445,6 +445,18 @@ module Boukensha
           hp_of    = ->(t) { (m = MudText.strip_ansi(t.to_s)[/(\d+)H\s+\d+M\s+\d+V/, 1]) && m.to_i }
           start_hp = nil
 
+          # Eat/drink first so hunger/thirst don't throttle movement regen — a
+          # common reason a grind session opens with a near-empty movement bar.
+          # Harmless when already fed (the MUD just refuses). Then, if movement is
+          # too low to search, say so up front so the agent rests instead of
+          # hunting on fumes and immediately stalling.
+          provision.call
+          mv_now = move_pts || parse_v.call(send_cmd.call(p.info_self("score")))
+          if mv_now && mv_now < 12 && !world.prey_here?
+            move_pts = mv_now
+            return "Low on movement (#{mv_now}) to hunt — I've eaten/drunk so regen isn't blocked. rest_until movement: 60 here (it's safe), then hunt again. (No prey in this exact room to fight right now.)"
+          end
+
           # Reposition to the nearest KNOWN grind spot first — that's where safe prey
           # actually is, versus exploring blind frontiers into who-knows-what (the
           # Obs B3 chessboard detour). Skip if we're already at/near one or can't
