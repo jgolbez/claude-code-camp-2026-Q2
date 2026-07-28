@@ -448,10 +448,49 @@ guards the downside; when hurt/low, they're skipped as before. This makes the ab
 quasits/zombies grindable when healthy instead of leaving only the sparse "Fairly easy"
 newbies. Tier + condition-parse unit-tested.
 
+### Obs B3 — the combat loop is proven end-to-end; the wall is finding the grind spot — 2026-07-28
+The fully-plugged run. Once on prey, the loop was textbook: **5 clean backstab kills**
+(2 janitors, 3 fidos), each *"Killed — backstab landed (fair). +~60 xp. Looted. HP
+37/37"* — full HP throughout, **no death, no over-level bleed**, and the **fidos (runners
+that were uncatchable in Obs B2) now die** — the chase fix landed. When the agent
+*manually* stepped into the chessboard it recognised it and **teleported out**.
+
+**But the meta-problem repeats:** `move ×19` in the histogram were iterations **1–~19
+spent wandering to FIND a grind spot** (Great Field → chessboard → teleport → city).
+Only once it hit **Main Street janitors/fidos (#10, East Gate #108, all "Easy")** did the
+clean hunt→fight loop begin — with ~15 iterations left, enough for 5 kills, not the ~16
+level-4 needs. Token cap at iter 34. Every run **re-discovers the grind spot from
+scratch**, and that search eats the budget the combat loop needs.
+
+Secondary note: the over-level back-out protects `hunt`/`explore` but **not manual agent
+`move`s** — the agent hand-walked into the chessboard (then self-recovered via
+teleporter). Fine for now; a `move` guard could close it later.
+
+**Diagnosis:** combat is *solved* — offload proven, chase works, safety perfect across
+three runs (no death). The one remaining wall is **navigation efficiency**: remember
+where safe prey was found so the agent `travel_to`s a known grind spot instead of
+re-searching. That's the closing piece.
+
 ## Technical Conclusions
 
-_(pending — the arc's combat offload is proven; closing the acceptance test now depends
-on the prey-finding fixes above, which straddle back into navigation.)_
+The combat arc's core bet — **combat is a decision-offloading problem** — is proven. The
+LLM makes one decision per mob (`hunt` → `fight`); the tools run consider, wimpy, the
+backstab opener, the kill, the chase, and the loot with zero model tokens (Obs B iters
+3–4, Obs C, Obs B3's 5-kill streak). Skill-awareness stayed class-agnostic (skills read
+from the game, a shared catalog for how to use them). Safety held across three full LLM
+runs — the consider-gate + wimpy floor + flee-attribution + over-level back-out +
+stop-on-damage kept a fragile Thief alive through fights, aggressive mobs, and even the
+Black-Knight zone (teleporter recovery). The surprises were all **downstream of working
+combat**: the limiter became *navigation* — first the `(d)` crash, then prey scarcity,
+now grind-spot *rediscovery*. The acceptance test (level 4 + train) is one navigation
+fix — **grind-spot memory** — from closing. New uncertainty parked for later: the
+parse_room parens/fingerprint migration, and a `move`-level over-level guard.
+
+## Key Takeaway
+
+Make the tools own the whole fight — search, opener, kill, chase, loot, and safety — and
+an LLM playing a fragile Thief will grind clean backstab kills for one decision each; what's
+left to solve isn't the fighting, it's *remembering where the fighting is good*.
 
 ## Key Takeaway
 
