@@ -1,9 +1,11 @@
 # Week 3: Combat & Leveling — earning the right to train
 
-> **Status:** combat offload proven; closing on the level-4 + train acceptance test.
-> This is the readable review — the iteration journey, the findings, the conclusions.
-> The full blow-by-blow (pre-registration, per-slice designs, every observation with
-> its token/flow tables) lives in [3_combat_detail.md](./3_combat_detail.md).
+> **Status:** ✅ **Level 4 reached (Obs B7)** — combat offload proven end to end; the
+> only piece left of the acceptance test is *training* the skill, which is blocked on
+> re-finding the Thieves' guild (a navigation task, post map-reset). This is the readable
+> review — the iteration journey, findings, conclusions. The full blow-by-blow (per-slice
+> designs, every observation, the navigation-hardening cluster) lives in
+> [3_combat_detail.md](./3_combat_detail.md).
 
 ## At a glance
 

@@ -533,6 +533,41 @@ death (5th run)**, steady to **354 xp from level 4**. Residual friction is now p
 *pacing*: Perry's 88-max movement drains walking between spawns (forces rests), and level
 4 is respawn-gated (~5-6 more kills). No capability gap remains — the arc is proven.
 
+### Navigation hardening (post-B5) — the cluster that finally made it work — 2026-07-28
+Between B5 and B7 the limiter was navigation cruft, fixed in a burst (all user-spotted or
+diagnosed live):
+- **Reverse-edge inference** — walk A→B, infer B→A (when B has the opposite exit), so the
+  directed map stays routable (was 98/152 reachable → the "can't reach a room I've been
+  to" fragmentation).
+- **Door-stable room identity** — a door opening/closing was changing the fingerprint and
+  spawning duplicate rooms (#91 vs #113). `parse_room` now normalises the door token and
+  tracks door state as *mutable status*; descriptions are stored so identity is
+  recomputable.
+- **Map reset** — the multi-session map was too crufty to merge in place (old rooms had no
+  stored descriptions), so it was wiped and rebuilt clean, door-aware, routable.
+- **Hunger before hunting** — `hunt` eats/drinks first (CircleMUD throttles movement regen
+  when hungry/thirsty → the low-movement starts).
+- **Death-trap detection** — "Mid-Air" zeroes HP on entry; `move`/`explore` now recognise
+  trap rooms, mark the exit off-limits, and teleport out (Perry hit 0 HP here in B6).
+- **Two-mode hunt** — the anti-wandering fix: once grind spots are tagged, `hunt` ONLY
+  cycles them and rests for respawns; it never blind-explores into town/sewer/chessboard.
+  Bootstrap explore only when no spot is known.
+- **Grind-spot re-seed** — tagged 4 newbie-zone rooms (#10 creepy, #11/#12 monsters, +) so
+  the fresh map has known-good hunting.
+
+### Obs B7 — LEVEL 4 REACHED. Combat/leveling acceptance test's core is done — 2026-07-28
+Textbook: **2 hunt→fight cycles, entirely in the seeded newbie zone, no wandering.**
+```
+hunt → monster in A Nexus (#12) "Fairly easy"      → fight → +201 xp (153 to go). HP 37/37
+hunt → monster in Dirty Hallway (#11) "Fairly easy" → fight → +215 xp → LEVEL 4! HP 35/44. new practice sessions
+```
+**Best offload ratio of the arc: 21 high / 14 low.** Max HP 37→44 on level-up; practice
+sessions earned. The grind stayed clean and safe — known-spots mode cycled the seeds, zero
+dangerous detours. The only unfinished piece is **training the skill**, blocked on
+*finding the Thieves' guild* on the fresh (reset) map — a **navigation** task (week-2's
+ability found this same guild pre-reset), not a combat one. Perry is level 4 with practice
+sessions, one "find the guild" from training.
+
 ## Technical Conclusions
 
 The combat arc's core bet — **combat is a decision-offloading problem** — is proven. The
