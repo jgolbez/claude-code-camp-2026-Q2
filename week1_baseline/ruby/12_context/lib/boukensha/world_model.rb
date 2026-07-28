@@ -77,17 +77,22 @@ module Boukensha
         entry["visits"] += 1
       else
         entry = {
-          "id"         => (@next_id += 1),
-          "name"       => room[:name],
-          "exits"      => {},   # direction => neighbour id (nil = unexplored frontier)
-          "exit_names" => {},   # direction => destination name (from the `exits` cmd)
-          "edge_via"   => {},   # direction => how the edge was learned: walked | named
-          "edge_cost"  => {},   # direction => observed movement-point cost (slice 5)
-          "visits"     => 1,
-          "first_seen" => now
+          "id"          => (@next_id += 1),
+          "name"        => room[:name],
+          "description" => room[:description],  # stored so identity is recomputable
+          "exits"       => {},  # direction => neighbour id (nil = unexplored frontier)
+          "exit_names"  => {},  # direction => destination name (from the `exits` cmd)
+          "edge_via"    => {},  # direction => how the edge was learned: walked | named
+          "edge_cost"   => {},  # direction => observed movement-point cost (slice 5)
+          "visits"      => 1,
+          "first_seen"  => now
         }
         @rooms[fp] = entry
       end
+      # Mutable room STATUS, refreshed every visit (identity stays fixed): which
+      # exits are currently closed doors. This is the "update a room whose exits
+      # change" mechanism — a door opening/closing updates status, not identity.
+      entry["doors"] = room[:doors]
       entry["exit_names"] ||= {}
       entry["edge_via"]   ||= {}
       entry["edge_cost"]  ||= {}
@@ -160,9 +165,16 @@ module Boukensha
              .map(&:strip).reject(&:empty?).join(" ")
 
       raw_exits = lines[exits_idx][/\[\s*Exits:\s*([^\]]*)\]/i, 1].to_s.strip
-      dirs = raw_exits =~ /none/i ? [] : raw_exits.split(/\s+/)
+      tokens = raw_exits =~ /none/i ? [] : raw_exits.split(/\s+/)
+      # A parenthesised token like "(w)" is a CLOSED door west. Normalise the
+      # direction so a room keeps ONE identity whether its doors are open or
+      # closed, and separately note which exits are currently closed doors — that
+      # is mutable room STATUS, updated each visit, not part of identity.
+      dirs  = tokens.map { |t| t.gsub(/[()]/, "").downcase }.reject(&:empty?).uniq.sort
+      doors = tokens.select { |t| t.include?("(") }
+                    .map { |t| t.gsub(/[()]/, "").downcase }.reject(&:empty?).uniq.sort
 
-      { name: name, description: desc, exits: dirs.sort }
+      { name: name, description: desc, exits: dirs, doors: doors }
     end
 
     # Slice 7c: render a room block compactly for the model. Strips ANSI, keeps
