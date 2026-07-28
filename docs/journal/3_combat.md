@@ -439,6 +439,15 @@ Unit-tested the pure pieces (over-level detect, HP parse, opposite-dir, damage-s
 threshold, chase-dir parse); registry loads at 40 tools. Live validation is the next
 run (Obs B3).
 
+**Condition-gated risk (user request, to widen the prey pool for testing):** added a
+`:risky` consider tier for *"you would need some luck!"* (the band just above perfect
+match; *"a lot of luck"* and worse stay `:unsafe`). `hunt` and `fight` now engage `:even`
+and `:risky` prey **only when Perry is in top condition** — full-ish HP (≥90%), movement
+in hand, and carrying food+water — so a "some luck" fight is winnable and wimpy still
+guards the downside; when hurt/low, they're skipped as before. This makes the abundant
+quasits/zombies grindable when healthy instead of leaving only the sparse "Fairly easy"
+newbies. Tier + condition-parse unit-tested.
+
 ## Technical Conclusions
 
 _(pending — the arc's combat offload is proven; closing the acceptance test now depends

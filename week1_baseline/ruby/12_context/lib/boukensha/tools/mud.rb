@@ -397,7 +397,21 @@ module Boukensha
           return :miss   if t =~ /consider killing who|no ?one (?:by that|is here|here)|aren'?t (?:fighting|here)|isn'?t here|can'?t find|not here/
           return :safe   if t =~ /kill it easily|do it with|little effort|no (?:problem|contest|sweat)|piece of cake|with a needle|fairly easy|\beasy\b/
           return :even   if t =~ /perfect match/
-          :unsafe
+          return :risky  if t =~ /some luck/   # "you would need some luck(and great equipment)!"
+          :unsafe                              # a lot of luck / feel lucky / mad / death
+        end
+
+        # Perry is in top condition to take a calculated risk: full-ish HP, movement
+        # in hand (can flee/travel), and carrying food AND water (hunger/thirst won't
+        # bite mid-fight). Gate the riskier tiers (:even, :risky) on this.
+        good_condition = lambda do
+          s     = MudText.strip_ansi(send_cmd.call(p.info_self("score")))
+          hp    = s[/(\d+)\(\d+\)\s+hit/i, 1]&.to_i
+          maxhp = s[/\d+\((\d+)\)\s+hit/i, 1]&.to_i
+          mv    = s[/(\d+)\(\d+\)\s+movement/i, 1]&.to_i
+          inv   = MudText.strip_ansi(send_cmd.call(p.info_self("inventory")))
+          supplied = (inv =~ food_kw) && (inv =~ drink_kw)
+          !!(hp && maxhp && hp >= (maxhp * 0.9).floor && mv && mv.positive? && supplied)
         end
 
         # Consider one mob by trying its candidate keywords until the MUD matches
@@ -421,6 +435,7 @@ module Boukensha
         hunt = lambda do |max_rooms:|
           seen     = []   # unsafe mobs passed, for the report
           route    = []   # rooms searched
+          cond     = nil  # Perry's condition, computed lazily once per hunt
           hp_of    = ->(t) { (m = MudText.strip_ansi(t.to_s)[/(\d+)H\s+\d+M\s+\d+V/, 1]) && m.to_i }
           start_hp = nil
           max_rooms.times do
@@ -446,11 +461,23 @@ module Boukensha
               if rating =~ combat_re || rating =~ /swings?\s+at\s+you|takes?\s+a\s+swing|lunges?\s+at\s+you|attacks?\s+you/i
                 return "Attacked while hunting — an aggressive mob in #{world.name_for_id(hid)} (##{hid}) is on you: #{rating}\n→ call fight to kill it, or flee. Your call."
               end
-              if tier == :safe || tier == :even
-                caveat = tier == :even ? " It's a PERFECT MATCH (an even fight) — engage only at full HP and flee if it turns." : ""
+              # :safe is always fair game; :even/:risky only when Perry's topped up
+              # (full HP, movement, fed) — a "some luck" fight is winnable then, and
+              # wimpy still guards the downside.
+              engage = tier == :safe
+              if !engage && (tier == :even || tier == :risky)
+                cond = good_condition.call if cond.nil?
+                engage = cond
+              end
+              if engage
+                caveat = case tier
+                         when :even  then " It's a PERFECT MATCH (even fight) — you're at full strength, so winnable."
+                         when :risky then " It's RISKIER (\"some luck\") but you're topped up — winnable, and wimpy pulls you out if it turns."
+                         else ""
+                         end
                 return "Found prey: '#{kw}' in #{world.name_for_id(hid)} (##{hid}). consider says: \"#{rating}\".#{caveat}\n→ call fight with target \"#{kw}\" to engage (it re-considers before committing)."
               end
-              seen << "#{kw} — \"#{rating}\""
+              seen << "#{kw} — \"#{rating}\"#{(tier == :even || tier == :risky) ? ' (only when you\'re at full HP)' : ''}"
             end
             step = begin
               explore.call
@@ -521,6 +548,11 @@ module Boukensha
           return "No '#{tgt}' here to fight (#{rating.empty? ? 'nothing matched' : rating})." if tier == :miss
           if tier == :unsafe && !force
             return "Refusing to fight '#{tgt}' — consider says \"#{rating}\". Too dangerous. Use hunt to find safe prey, or pass force:true only if you truly mean it."
+          end
+          # A perfect-match or "some luck" fight is only worth it when Perry is topped
+          # up (full HP, movement, supplies) — wimpy covers the downside from there.
+          if (tier == :even || tier == :risky) && !force && !good_condition.call
+            return "'#{tgt}' would be a #{tier == :risky ? "'some luck'" : 'perfect-match'} fight — only worth it at full HP with movement and food/water on hand, and you're not there right now. rest_until / restock first, or pass force:true."
           end
 
           before = score_stats.call
