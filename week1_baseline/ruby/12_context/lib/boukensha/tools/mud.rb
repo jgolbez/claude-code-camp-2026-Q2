@@ -339,12 +339,80 @@ module Boukensha
           body     = MudText.strip_ansi(result).strip
 
           if world.parse_room(result).nil? || body =~ blocked_re
-            return "Explored #{dir} from room ##{before} but the exit was blocked:\n#{body}"
+            # Bounced (closed door/rock, or not a real direction). Mark this exit
+            # blocked so we don't fixate on it — next explore picks another frontier.
+            world.mark_blocked(short, reason: body[/[^\n.]*\b(?:closed|cannot go|can'?t go)[^\n.]*/i])
+            return "Explored #{dir} from room ##{before} — blocked (won't retry it): #{body.lines.first&.strip}"
           end
 
           prefix = walked.empty? ? "" : "Walked #{walked.join(' → ')} to the frontier, then "
           tail   = body =~ combat_re ? " — COMBAT, your call" : ""
           "#{prefix}stepped #{dir} into new territory#{tail} (now room ##{world.current_id}).\n#{enriched}"
+        end
+
+        # Classify a `consider` rating: :safe (go), :even (perfect match — only at
+        # full HP), :unsafe (needs luck / mad / death — skip), :miss (no such mob).
+        consider_tier = lambda do |rating|
+          t = rating.to_s.downcase
+          return :miss   if t =~ /consider killing who|no ?one (?:by that|is here|here)|aren'?t (?:fighting|here)|isn'?t here|can'?t find|not here/
+          return :safe   if t =~ /kill it easily|do it with|little effort|no (?:problem|contest|sweat)|piece of cake|with a needle|fairly easy|\beasy\b/
+          return :even   if t =~ /perfect match/
+          :unsafe
+        end
+
+        # Consider one mob by trying its candidate keywords until the MUD matches
+        # one. Returns [keyword, rating, tier] or nil if nothing matched.
+        consider_mob = lambda do |kwset|
+          kwset[:keywords].each do |kw|
+            rating = MudText.strip_ansi(send_cmd.call(p.consider(kw))).strip.lines.first.to_s.strip
+            tier   = consider_tier.call(rating)
+            next if tier == :miss
+            return [kw, rating, tier]
+          end
+          nil
+        end
+
+        # HUNT — the search-phase offload. Deterministically look for a mob Perry
+        # can safely fight: in each room, consider every mob; if none is safe, step
+        # to the next room via explore and try again, up to max_rooms. Walks and
+        # considers for ZERO model tokens and returns control only when it finds
+        # safe prey (→ fight), gets attacked, runs out of movement, or exhausts the
+        # search. One agent decision instead of dozens of move+consider calls.
+        hunt = lambda do |max_rooms:|
+          seen  = []   # unsafe mobs passed, for the report
+          route = []   # rooms searched
+          max_rooms.times do
+            raw = send_cmd.call(p.look)
+            world.observe(raw)
+            hid = world.current_id
+            route << hid
+            world.mob_keyword_sets(raw).each do |kwset|
+              hit = consider_mob.call(kwset)
+              next unless hit
+              kw, rating, tier = hit
+              # An aggressive mob may attack while we're sizing it up — the
+              # "rating" is then an attack line, not a consider verdict. Stop and
+              # hand back rather than mistaking it for prey data.
+              if rating =~ combat_re || rating =~ /swings?\s+at\s+you|takes?\s+a\s+swing|lunges?\s+at\s+you|attacks?\s+you/i
+                return "Attacked while hunting — an aggressive mob in #{world.name_for_id(hid)} (##{hid}) is on you: #{rating}\n→ call fight to kill it, or flee. Your call."
+              end
+              if tier == :safe || tier == :even
+                caveat = tier == :even ? " It's a PERFECT MATCH (an even fight) — engage only at full HP and flee if it turns." : ""
+                return "Found prey: '#{kw}' in #{world.name_for_id(hid)} (##{hid}). consider says: \"#{rating}\".#{caveat}\n→ call fight with target \"#{kw}\" to engage (it re-considers before committing)."
+              end
+              seen << "#{kw} — \"#{rating}\""
+            end
+            step = explore.call
+            case step
+            when /Nothing left to explore|no unexplored exits/i then break
+            when /COMBAT/i
+              return "Attacked while hunting — now in #{world.name_for_id(world.current_id)} (##{world.current_id}). Handle it:\n#{step}"
+            when /Can'?t explore right now/i
+              return "Hunt paused — not enough movement to search further. #{step}"
+            end
+          end
+          detail = seen.empty? ? "no mobs at all" : "only mobs too strong to fight safely:\n  - #{seen.uniq.first(8).join("\n  - ")}"
+          "No safe prey found after searching #{route.uniq.size} room#{route.uniq.size == 1 ? '' : 's'} (#{route.uniq.map { |x| "##{x}" }.join(', ')}). Found #{detail}.\n→ This area is too tough. Relocate to a weaker area, or report the level-up goal blocked here."
         end
 
         # ── Connection ─────────────────────────────────────────────────────
@@ -483,6 +551,21 @@ module Boukensha
           parameters: {} do
           next guard.call if guard.call
           explore.call
+        end
+
+        registry.tool "hunt",
+          description: "Find a mob you can safely fight. Walks room by room, considers every mob it " \
+                       "finds, and STOPS the moment one rates safe to kill — telling you which mob and " \
+                       "where, so you can then call `fight` on it. If it finds only mobs too strong (or " \
+                       "none at all), it says so and suggests relocating. This is how you search for " \
+                       "prey: it spends NONE of your turn budget on the walking or the considering, so " \
+                       "always prefer it over doing move + consider by hand to look for something to " \
+                       "kill. Call it, read whether it found prey, then fight or move on.",
+          parameters: {
+            max_rooms: { type: "integer", description: "How many rooms to search before giving up (default 12)" }
+          } do |max_rooms: 12|
+          next guard.call if guard.call
+          hunt.call(max_rooms: (max_rooms || 12).to_i.clamp(1, 40))
         end
 
         registry.tool "plan_route",

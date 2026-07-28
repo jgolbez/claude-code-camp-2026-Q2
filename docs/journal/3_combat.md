@@ -201,6 +201,33 @@ Both confirm the core hypothesis (combat is decision-*offloading*), and Obs A sh
 it: the offload must cover the **search** phase first, because that is where a
 correctly-behaving agent still burns its whole budget.
 
+### Slice B — `hunt` tool + `explore` blocked-frontier fix (built, validated live) — 2026-07-28
+**Built** (deterministic, zero model tokens):
+- **`hunt`** — walks room by room; in each, extracts mob keywords from the live
+  occupant lines and `consider`s them; stops the instant one rates **safe/even**
+  (returns "prey X in room N → call fight"), or reports "only-too-strong / none" and
+  suggests relocating. Also hands back on an aggressive-mob attack mid-search.
+- **Mob-keyword extraction** (`world_model#mob_keyword_sets`): parenthetical species
+  hints → capitalized proper nouns → longest content words, with `consider` itself
+  validating the match. Unit-tested against real lines: `(a quasit perhaps?)`→quasit,
+  `The Great Minotaur`→minotaur, `a small bat`→bat; corpses/objects skipped.
+- **`explore` blocked-frontier fix:** a bounced step (closed door/rock, non-direction)
+  now `mark_blocked`s that exit (sentinel neighbour, no longer a frontier) instead of
+  retrying it forever — the bug that trapped the old Perry on the ledge.
+
+**Validated live (no LLM):** two `hunt` runs searched 6 and 7 distinct rooms with no
+fixation, correctly rated every newbie-dungeon mob unsafe (`minotaur "Are you mad!?"`,
+`quasit "a lot of luck"`, `zombiefied newbie "…great equipment"`), and returned clean
+reports in ~4s. Bugs found & fixed in the pass: a `/x`-flag regex swallowing the spaces
+in "has been installed" (objects leaked as prey); an aggressive mob's attack line
+mistaken for a consider rating.
+
+**Hardened Obs A's grind-location finding:** `hunt` *proves* the newbie dungeon north
+of the Temple is too tough for a fresh level-1 — there is **no safe prey there.** The
+only mobs this Perry has beaten are the **sewer bats** (Obs 12). Slice C (the `fight`
+tool) can't be validated end-to-end until we point Perry at weak prey → the grind-spot
+question is now on the critical path.
+
 ## Technical Conclusions
 
 _(pending)_

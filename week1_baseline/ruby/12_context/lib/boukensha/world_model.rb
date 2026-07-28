@@ -27,6 +27,11 @@ module Boukensha
   # tiebreaker in slice 1b.
   class WorldModel
     ANSI = /\e\[[0-9;?]*[ -\/]*[@-~]/.freeze
+    # Sentinel neighbour value: an exit that exists but can't be walked (a closed
+    # door / rock we tried and bounced off). Not nil, so it stops counting as an
+    # unexplored frontier; not an id, so routing skips it. Keeps auto-explore from
+    # hammering the same blocked exit forever.
+    BLOCKED = "blocked".freeze
 
     # Normalise a movement direction (full word or short form) to its short form,
     # matching the letters CircleMUD prints in the "[ Exits: ... ]" line.
@@ -206,9 +211,10 @@ module Boukensha
 
       parts = ex.keys.sort.map do |d|
         tgt = ex[d]
-        if tgt          then "#{d}→##{tgt}"
-        elsif names[d]  then "#{d}→? (#{names[d]})"
-        else                 "#{d}→? (unexplored)"
+        if tgt == BLOCKED then "#{d}→✕ (#{names[d] || 'blocked'})"
+        elsif tgt         then "#{d}→##{tgt}"
+        elsif names[d]    then "#{d}→? (#{names[d]})"
+        else                   "#{d}→? (unexplored)"
         end
       end
       open = ex.values.count(&:nil?)
@@ -284,6 +290,67 @@ module Boukensha
       names = room["exit_names"] || {}
       (room["exits"] || {}).select { |_d, tid| tid.nil? }.keys
                            .sort_by { |d| [names[d] ? 0 : 1, d] }
+    end
+
+    # Mark an exit non-traversable after a step through it bounced (closed door /
+    # rock). Uses the exact exit key as stored (matches parse_room's tokens, e.g.
+    # "d" or "(d)"). Afterwards it no longer counts as an unexplored frontier, so
+    # explore/nearest_frontier skip it instead of retrying forever.
+    def mark_blocked(exit_key, from_fp: @current_fp, reason: nil)
+      room = from_fp && @rooms[from_fp]
+      return nil unless room && (room["exits"] || {}).key?(exit_key)
+      room["exits"][exit_key] = BLOCKED
+      (room["exit_names"] ||= {})[exit_key] = reason.to_s.strip if reason && !reason.to_s.strip.empty?
+      save
+      exit_key
+    end
+
+    # ── Combat: finding prey ──────────────────────────────────────────────
+    # The live "who/what is here" lines that follow the [ Exits ] line, minus
+    # blanks, the vitals prompt, and any [memory] seam. Mobs are excluded from the
+    # fingerprint on purpose, so we read them straight from raw text here.
+    def occupant_lines(raw)
+      clean = raw.to_s.gsub(ANSI, "").gsub("\r\n", "\n").gsub("\r", "\n")
+      lines = clean.split("\n")
+      ei = lines.index { |l| l =~ /\[\s*Exits:/i }
+      return [] unless ei
+      lines[(ei + 1)..].to_a.map(&:strip).reject do |s|
+        s.empty? || s.start_with?("[memory]") ||
+          s =~ /\d+H\s+\d+M\s+\d+V/ || s =~ /\A>+\s*\z/
+      end
+    end
+
+    # Corpses and objects are not prey; their lines are skipped. (No /x flag —
+    # extended mode would strip the literal spaces in "has been installed".)
+    NON_PREY = /\bcorpse\b|\bremains\b|has\s+been\s+(?:installed|left|placed)|\bsigns?\b|\bcoins?\b|\bkeys?\b|is\s+lying\s+here|lies\s+here/i.freeze
+
+    # Words that are never a mob's alias — dropped from keyword candidates so we
+    # don't waste `consider` calls on them.
+    CONSIDER_STOP = %w[
+      the and are was were here its you your yours what just about around all over
+      this that these those with but for from into onto out off down back
+      they them their there where who whom how why when then than some any each
+      perhaps maybe seems appears looks feels wonders wondering sneaking standing
+      sitting resting sleeping flying floating hovering leaning lying moving crawling
+      walking wandering slithering watching guarding taste like little funny thing
+      things nice place really about here have has been
+    ].freeze
+
+    # Candidate keywords for `consider`, ordered by how likely the MUD is to match
+    # them to a mob's alias list: parenthetical species hints first ("(a quasit
+    # perhaps?)" → quasit), then capitalized proper nouns ("Minotaur"), then the
+    # remaining longer content words. `consider <kw>` validates the real one.
+    # Returns [{ line:, keywords: [...] }] for each live-creature line.
+    def mob_keyword_sets(raw)
+      occupant_lines(raw).reject { |l| l =~ NON_PREY }.map do |line|
+        paren = line.scan(/\(([^)]*)\)/).flatten.join(" ").downcase.scan(/[a-z]{3,}/)
+        cap   = line.split.each_with_index
+                    .select { |w, i| i.positive? && w =~ /\A[A-Z][a-z]{2,}/ }
+                    .map { |(w, _)| w.downcase }.sort_by { |w| -w.length }
+        rest  = line.downcase.scan(/[a-z]{3,}/).sort_by { |w| -w.length }
+        kws   = (paren + cap + rest).reject { |w| CONSIDER_STOP.include?(w) }.uniq
+        { line: line, keywords: kws.first(6) }
+      end.reject { |t| t[:keywords].empty? }
     end
     def room_by_id(id) = @rooms.values.find { |r| r["id"] == id }
     def name_for_id(id) = room_by_id(id)&.dig("name")
