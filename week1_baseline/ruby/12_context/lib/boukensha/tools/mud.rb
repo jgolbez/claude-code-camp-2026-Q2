@@ -460,8 +460,26 @@ module Boukensha
             hp = hp_of.call(raw)
             start_hp ||= hp
             if hp && start_hp && (hp <= 10 || hp <= start_hp / 2)
-              return "Stopped hunting — you're taking damage while searching (HP down to #{hp} from #{start_hp}). This area isn't safe to wander. Rest somewhere safe, then hunt from a calmer spot (or teleport MIDGAARD and grind near town)."
+              return "Stopped hunting — you're taking damage while searching (HP down to #{hp} from #{start_hp}). This area isn't safe to wander. Rest somewhere safe, then hunt elsewhere (the newbie zone north of the Temple is the level 1–5 grind)."
             end
+
+            # Never grind a room the town guards patrol — Peacekeepers/Cityguards
+            # gang in the moment your alignment slips from killing, and can kill a
+            # fragile Thief. `consider` only rates a 1v1, so it can't see this.
+            # Skip such rooms entirely (don't offer or tag prey there).
+            if raw =~ /peacekeeper|cityguard|city\s*guard/i
+              seen << "#{world.name_for_id(hid)} is guarded (Peacekeepers) — skipped: don't grind in town"
+              step = begin
+                explore.call
+              rescue StandardError => e
+                "Nothing left to explore — search halted (#{e.class}: #{e.message})"
+              end
+              break if step =~ /Nothing left to explore|no unexplored exits|search halted/i
+              return "Attacked while hunting — now in #{world.name_for_id(world.current_id)} (##{world.current_id}). Handle it:\n#{step}" if step =~ /COMBAT/i
+              return "Hunt paused — not enough movement. #{step}" if step =~ /Can'?t explore right now/i
+              next
+            end
+
             world.mob_keyword_sets(raw).each do |kwset|
               hit = consider_mob.call(kwset)
               next unless hit

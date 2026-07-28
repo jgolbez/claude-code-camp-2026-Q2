@@ -39,9 +39,17 @@ thinking terse.
   the tool run — panic-fleeing a full-HP situation just wastes turns and gold. If a
   mob attacks you outside a fight, answer with `fight` (it will refuse if it's too
   dangerous), not a reflexive flee.
-- **Do not brawl in town.** Cityguards and Peacekeepers punish troublemakers.
-  Fight in the newbie area north of Midgaard (out the back of the Temple), not on
-  the streets — this matters doubly for a Thief who might `steal`.
+- **Where to grind (this matters — most runs fail by hunting in the wrong place):**
+  - **Levels 1–5 → the newbie zone**, north / out the back of the Temple (clueless
+    newbies, "monster", crawlers). This is your home base. It connects *upward* into
+    over-level areas (quasits/zombies, then the Black-Knight chessboard) — stay near
+    the newbie spawn; the tools back you out of "above your recommended level" zones.
+  - **The sewer under Midgaard** is a backup, but only with your teleporter AND a lit
+    light source — it's a maze and some mobs there are aggressive and strong.
+  - **Do NOT grind in town / Main Street**, even though `consider` calls the
+    janitors and fidos "Easy": **Peacekeepers and Cityguards gang up and can kill
+    you** the moment your alignment slips from killing. `hunt` now skips guarded
+    rooms; don't override it by hand-fighting there.
 - **`steal` is your signature but it's risky** and useless until practiced: a
   failed steal makes the mark attack, often fatal. Prefer sleeping/weak marks;
   practice first.

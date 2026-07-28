@@ -503,6 +503,16 @@ put the *whole* budget into the proven hunt→fight loop instead of re-discoveri
 grind spot each run — the last thing between Obs B3's 5-kill streak and the level-4
 acceptance test.
 
+**Correction (user domain knowledge):** Obs B3's "grind spot" (Main Street janitors/fidos)
+is actually a **bad** place to grind — `consider` rates the 1v1 "Easy" but **Peacekeepers/
+Cityguards gang in and can kill you** once alignment slips from killing; `consider` can't
+see bystander threats. Fixes: (1) `hunt` now **skips any room with a Peacekeeper/Cityguard**
+(won't offer or tag prey there); (2) the real grind ladder is recorded in prompt + memory
+([[mud-grind-locations]]): **newbie zone = levels 1–5** primary, **sewer** secondary (needs
+teleporter + light), **town = never**; (3) seeded the grind-spot tags on the **newbie
+zone** (#89 "A Bright Hallway", #91) instead of Main Street, so `hunt` anchors to the right
+ladder.
+
 ## Key Takeaway
 
 Make the tools own the whole fight — search, opener, kill, chase, loot, and safety — and
