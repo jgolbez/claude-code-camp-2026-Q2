@@ -1,6 +1,7 @@
 require "mud_manager"
 require_relative "mud_text"
 require_relative "../world_model"
+require_relative "../skills"
 
 module Boukensha
   module Tools
@@ -415,6 +416,133 @@ module Boukensha
           "No safe prey found after searching #{route.uniq.size} room#{route.uniq.size == 1 ? '' : 's'} (#{route.uniq.map { |x| "##{x}" }.join(', ')}). Found #{detail}.\n→ This area is too tough. Relocate to a weaker area, or report the level-up goal blocked here."
         end
 
+        # ── Combat: skill-aware fight-to-completion ─────────────────────────
+
+        # The character's trained skills, read from the game (`practice`) and
+        # cached for the session. Refreshed after training / level-up.
+        char_skills = { sessions: 0, skills: {}, loaded: false }
+        load_skills = lambda do |force: false|
+          if !char_skills[:loaded] || force
+            parsed = Boukensha::Skills.parse_practice(send_cmd.call(p.practice))
+            char_skills[:sessions] = parsed[:sessions]
+            char_skills[:skills]   = parsed[:skills]
+            char_skills[:loaded]   = true
+          end
+          char_skills
+        end
+
+        # Pull xp / level / hp from a fresh score read, for before/after deltas.
+        score_stats = lambda do
+          s = MudText.strip_ansi(send_cmd.call(p.info_self("score")))
+          {
+            hp:    s[/(\d+)\((\d+)\)\s+hit/i, 1]&.to_i,
+            maxhp: (s =~ /(\d+)\((\d+)\)\s+hit/i) ? Regexp.last_match(2).to_i : nil,
+            xp:    s[/have\s+(\d+)\s+exp/i, 1]&.to_i,
+            need:  s[/need\s+(\d+)\s+exp/i, 1]&.to_i,
+            level: s[/\(level\s+(\d+)\)/i, 1]&.to_i
+          }
+        end
+
+        # A carried piercing weapon to swap in for a backstab. Keyword match on
+        # inventory; if backstab later complains, we detect that and fall back.
+        piercing_kw = /\b(dagger|dirk|knife|stiletto|kris|main-gauche|rapier|needle)\b/i
+        find_dagger = lambda do
+          inv  = MudText.strip_ansi(send_cmd.call(p.info_self("inventory")))
+          line = inv.lines.find { |l| l =~ piercing_kw }
+          line && line[piercing_kw, 1]&.downcase
+        end
+
+        # FIGHT — kill one mob to completion, skill-aware and hands-off. Re-considers
+        # the target (bails if unsafe unless force:), sets a wimpy safety floor, leads
+        # with the best trained opener whose preconditions hold (backstab: wield a
+        # dagger → strike → re-wield the main weapon for sustained damage), lets the
+        # MUD's auto-rounds run to the kill, auto-loots the corpse, and returns ONE
+        # distilled line (outcome + vitals + xp/level delta). Round spam never reaches
+        # the model. This is the fight-phase offload.
+        fight = lambda do |target:, force: false|
+          tgt = target.to_s.strip
+          return "error: no target given" if tgt.empty?
+
+          rating = MudText.strip_ansi(send_cmd.call(p.consider(tgt))).strip.lines.first.to_s.strip
+          tier   = consider_tier.call(rating)
+          return "No '#{tgt}' here to fight (#{rating.empty? ? 'nothing matched' : rating})." if tier == :miss
+          if tier == :unsafe && !force
+            return "Refusing to fight '#{tgt}' — consider says \"#{rating}\". Too dangerous. Use hunt to find safe prey, or pass force:true only if you truly mean it."
+          end
+
+          before = score_stats.call
+          # Deterministic wimpy floor ≈ 1/3 max HP (fires before a lethal hit lands).
+          send_cmd.call("toggle wimpy #{[(before[:maxhp].to_i / 3.0).ceil, 1].max}") if before[:maxhp]
+
+          # Skill-aware opener.
+          opener_note = "plain attack"
+          struck = false
+          opener, prof = Boukensha::Skills.openers(load_skills.call[:skills]).first
+          if opener == "backstab"
+            eq      = MudText.strip_ansi(send_cmd.call(p.info_self("equipment")))
+            main_kw = eq[/<wielded>\s+(.+)/i, 1]&.strip&.sub(/\s*\.\..*/, "")&.split&.last
+            dagger  = find_dagger.call
+            if dagger.nil?
+              opener_note = "backstab (#{prof}) trained but no dagger carried — plain attack"
+            else
+              send_cmd.call(p.equip("wield", dagger))
+              bs = MudText.strip_ansi(send_cmd.call(p.skill_strike("backstab", tgt)))
+              if bs =~ /piercing weapon|only.*(?:pierc|stab)|cannot backstab|not proficient/i
+                opener_note = "backstab needs a piercing weapon — skipped, plain attack"
+              elsif bs =~ /they aren'?t here|no ?one (?:by that|here)|isn'?t here/i
+                send_cmd.call(p.equip("wield", main_kw)) if main_kw
+                return "'#{tgt}' is gone — nothing to fight now."
+              else
+                struck      = true
+                opener_note = bs =~ /miss|fail|feint/i ? "backstab MISSED (#{prof}) — lost surprise, fighting on" : "backstab landed (#{prof})"
+              end
+              send_cmd.call(p.equip("wield", main_kw)) if main_kw   # best-damage weapon for the fight
+            end
+          end
+
+          send_cmd.call(p.attack("kill", tgt)) unless struck
+
+          # Poll the MUD's auto-rounds until an outcome or things go quiet.
+          rounds   = +""
+          deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 35
+          loop do
+            chunk = session.read_until_quiet(1.4, timeout: 5)
+            rounds << chunk
+            break if rounds =~ /is dead|R\.I\.P|you receive|you gain|experience|you flee|PANIC|has been KILLED|you die\b|you are dead/i
+            break if chunk.strip.empty?
+            break if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+          end
+
+          killed = rounds =~ /is dead|R\.I\.P|you receive your|you gain|slain|experience/i
+          fled   = rounds =~ /you flee|PANIC/i
+          died   = rounds =~ /has been KILLED|you are dead|you die\b/i
+          after  = score_stats.call
+
+          # Auto-loot on a kill (items + any coins).
+          if killed
+            send_cmd.call(p.get("all", container: "corpse"))
+            send_cmd.call(p.get("coins", container: "corpse"))
+          end
+
+          dxp     = (after[:xp] && before[:xp]) ? after[:xp] - before[:xp] : nil
+          leveled = after[:level] && before[:level] && after[:level] > before[:level]
+          vit     = after[:hp] && after[:maxhp] ? "HP #{after[:hp]}/#{after[:maxhp]}" : nil
+          xpline  = dxp ? "+#{dxp} xp" : "xp unchanged"
+          nextl   = after[:need] ? " (#{after[:need]} to next level)" : ""
+
+          if died
+            "You DIED fighting '#{tgt}'. Respawned — your gear is on your corpse. #{vit}."
+          elsif leveled
+            "Killed '#{tgt}' — #{opener_note}. #{xpline} → LEVEL #{after[:level]}! Looted corpse. #{vit}. You have new practice sessions — train at your guild."
+          elsif killed
+            "Killed '#{tgt}' — #{opener_note}. #{xpline}#{nextl}. Looted corpse. #{vit}."
+          elsif fled
+            "Fled from '#{tgt}' (#{opener_note}); wimpy saved you. #{vit}. Rest, then pick weaker prey (hunt)."
+          else
+            "Fight with '#{tgt}' didn't resolve (#{opener_note}). #{vit}. Diagnose and decide — attack again or flee."
+          end
+        end
+
         # ── Connection ─────────────────────────────────────────────────────
 
         registry.tool "mud_connect",
@@ -661,9 +789,32 @@ module Boukensha
 
         # ── Combat ──────────────────────────────────────────────────────────
 
+        registry.tool "fight",
+          description: "Kill one mob, start to finish, in a single call — the way to actually fight. " \
+                       "It re-considers the target (refuses if too dangerous unless force:true), sets a " \
+                       "wimpy safety floor, leads with your best trained OPENER when it applies (e.g. a " \
+                       "Thief's backstab: it wields a dagger, strikes, then swaps back to your main " \
+                       "weapon), lets the fight's auto-rounds run to the kill, loots the corpse, and " \
+                       "returns ONE line: outcome + your HP + xp/level gained. You do NOT see or drive " \
+                       "individual rounds. Pair with `hunt`: hunt finds safe prey, fight kills it. Use " \
+                       "this instead of attack/skill_strike by hand.",
+          parameters: {
+            target: { type: "string", description: "Name/keyword of the mob to kill (e.g. 'crawler')" },
+            force:  { type: "boolean", description: "Fight even if consider rates it unsafe (default false). Rarely needed." }
+          } do |target:, force: false|
+          next guard.call if guard.call
+          begin
+            fight.call(target: target, force: force ? true : false)
+          rescue MudManager::Session::Error, ArgumentError => e
+            "error: #{e.message}"
+          end
+        end
+
         registry.tool "attack",
-          description: "Attack a target. Style 'kill' is the standard approach; " \
-                       "'murder' bypasses the mercy check; 'hit' is a one-off strike.",
+          description: "Low-level single attack (one command, one round of response). Prefer `fight`, " \
+                       "which runs a whole fight to completion. Use this only for a deliberate one-off " \
+                       "strike. Style 'kill' is standard; 'murder' bypasses the mercy check; 'hit' is a " \
+                       "one-off strike.",
           parameters: {
             target: { type: "string", description: "Name of the mob or player to attack" },
             style:  { type: "string", description: "Attack style: kill | hit | murder (default: kill)" }

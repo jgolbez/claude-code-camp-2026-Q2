@@ -280,6 +280,27 @@ discovery + catalog + `fight` opener logic); the utility wiring is a follow-up.
 line (outcome + vitals + XP/level delta). Validate against a real crawler/clueless
 newbie once Perry is armed.
 
+### Slice C — skill-aware `fight` tool (built + unit-tested; live validation pending) — 2026-07-28
+**Built:**
+- **`Boukensha::Skills`** (`lib/boukensha/skills.rb`, class-agnostic): `parse_practice`
+  → `{sessions, skills:{name=>prof}}`; `PROFICIENCY` ladder + `proficiency_rank`; the
+  `CATALOG` (skill → role/preconditions/on-fail); `openers` (best-first). Unit-tested
+  against Perry's real `practice` **and** a synthetic Warrior list (bash/kick =
+  combat_move, no opener) — all pass.
+- **`fight` tool** (fight-to-completion): re-`consider` gate (refuse unsafe unless
+  `force`) → wimpy floor `⌈maxhp/3⌉` → **skill-aware opener** (backstab: capture main
+  weapon → wield a carried dagger → `backstab` → re-wield main; detects "need piercing
+  weapon"/miss and degrades) → `kill` → **poll `read_until_quiet` to the outcome** →
+  auto-loot corpse (items + coins) → ONE distilled line (killed/leveled/fled/died +
+  HP + xp delta + "train at your guild" on level-up). `attack`/`skill_strike` demoted
+  to low-level fallbacks in their tool docs.
+- Registry loads clean at **40 tools**; `fight` + `hunt` present.
+
+**Not yet validated live:** needs Perry positioned at a **consider-safe crawler /
+clueless newbie**, and — to exercise the backstab path — a **dagger in his pack** (he
+currently carries none, so `fight` would plain-attack). Deliberately NOT auto-navigating
+him there (that blind-drive is what killed the last Perry — [[dont-blind-drive-perry]]).
+
 ## Technical Conclusions
 
 _(pending)_
