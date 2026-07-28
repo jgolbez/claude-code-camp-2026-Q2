@@ -40,6 +40,8 @@ module Boukensha
       "up" => "u", "down" => "d",
       "n" => "n", "s" => "s", "e" => "e", "w" => "w", "u" => "u", "d" => "d"
     }.freeze
+    # Opposite short directions — used to infer the reverse of a walked edge.
+    OPP = { "n" => "s", "s" => "n", "e" => "w", "w" => "e", "u" => "d", "d" => "u" }.freeze
 
     attr_reader :rooms, :current_fp, :path
 
@@ -119,6 +121,18 @@ module Boukensha
           if move_cost && move_cost.positive?
             ec = (prev["edge_cost"] ||= {})
             ec[d] = [ec[d].to_i, move_cost].max
+          end
+
+          # Infer the REVERSE edge so the map stays routable. If the room we just
+          # arrived in advertises an exit back the opposite way and it's still an
+          # open frontier, link it to where we came from. Only when the exit
+          # actually exists (never invents a path through a one-way exit); a real
+          # walked/named edge later overrides this lower-confidence guess. Without
+          # this, route_to strands rooms we've clearly walked between.
+          rev = OPP[d]
+          if rev && entry["exits"].key?(rev) && entry["exits"][rev].nil?
+            entry["exits"][rev]             = prev["id"]
+            (entry["edge_via"] ||= {})[rev] = "inferred"
           end
         end
       end
@@ -310,6 +324,28 @@ module Boukensha
     def prey_here?(from_fp: @current_fp)
       room = from_fp && @rooms[from_fp]
       !!(room && room["prey"])
+    end
+
+    # One-time repair: infer missing reverse edges across the whole map, so
+    # route_to can traverse connections we only ever walked one way (the cause of
+    # the "can't reach a room I've been to" fragmentation). Same rule as observe —
+    # only where the opposite exit exists and is still unset. Returns the count.
+    def backfill_reverse_edges
+      added = 0
+      @rooms.each_value do |a|
+        (a["exits"] || {}).each do |d, tid|
+          next unless tid.is_a?(Integer)
+          rev = OPP[d]
+          next unless rev
+          b = room_by_id(tid)
+          next unless b && (b["exits"] || {}).key?(rev) && b["exits"][rev].nil?
+          b["exits"][rev]             = a["id"]
+          (b["edge_via"] ||= {})[rev] = "inferred"
+          added += 1
+        end
+      end
+      save if added.positive?
+      added
     end
 
     # Directions out of a room whose exit is advertised but not yet WALKED — the
