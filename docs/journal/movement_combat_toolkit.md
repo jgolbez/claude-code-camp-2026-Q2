@@ -36,7 +36,10 @@ decision moves out of the model's turn cycle and into the tool.
 ### `hunt` — search (find prey)
 Walks room to room, **considers every mob**, and stops on one it can safely fight. Two
 modes: once grind spots are known it **only cycles them and rests for respawns** — never
-wandering into danger; otherwise it explores to find the first spot.
+wandering into danger; otherwise it explores to find the first spot. It **prioritises by
+value** — prefers a stronger mob for the xp (perfect-match > monster > creepy), skips
+prey below a **floor** that's not worth the time (and the floor auto-scales as you level),
+and *satisfices* across spots. It also **reports what it passed up**, so the choice is legible.
 *Was: ~20 hand-walked moves. Now: 1 call.*
 
 ### `fight` — combat (kill to completion)

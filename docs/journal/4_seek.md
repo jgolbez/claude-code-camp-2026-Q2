@@ -1,9 +1,12 @@
-# seek — an offloaded "find a place by name" tool
+# Completing the toolkit — `seek`, the survival layer & prey prioritization
 
-> **Status:** pre-registration (design before build), per the project discipline.
-> Emerged from the Obs B7 gap: Perry reached level 4 but couldn't train because the
-> **Thieves' guild wasn't on the (reset) map**, and finding it by hand-`explore`
-> burned a whole run's token budget without success.
+> **Status:** complete. This entry began as a pre-registration for `seek` (design before
+> build, per the project discipline) after the Obs B7 gap — Perry hit level 4 but couldn't
+> train because the **Thieves' guild wasn't on the (reset) map** and hand-`explore` burned
+> a whole run's budget. It then grew to cover everything that finished the navigation +
+> combat toolkit: the `seek` place-discovery tool, the **survival layer** (heal + safe
+> sleep), the **capstone** validation (autonomous, blank map), and **prey prioritization**.
+> The `seek` design/pre-registration is preserved below as written; the later work follows.
 
 ## The goal
 
@@ -158,3 +161,24 @@ level 4 becomes below-floor once you outlevel it.
   "wander forever hoping for a better mob."
 `:even`/`:risky` still gated on being topped up; safety unchanged. Band + floor +
 within-room-best unit-tested; live hunt runs clean.
+
+**Made the decision observable.** The choice happens *inside* `hunt` (deterministic), so
+the flow-trace only ever saw the final pick. `hunt` now records every mob it looked at
+and did NOT take, with the reason, and reports it in the result:
+`Found prey: 'newbie' … A proper mob — more xp than the little ones. [chose it over:
+creepy (weaker); rat (too trivial); zombie (too tough)]`. Covers within-room (a weaker
+mob passed for a stronger) and cross-room satisfice (kept looking elsewhere).
+
+**Validated it live (tracking the choices).** Two observations confirmed the behavior:
+- A grind run **killed a monster (+210 xp), not a creepy** — reaching for the higher tier.
+- A deterministic `hunt` returned *"Found prey: 'newbie' … Fairly easy … A proper mob —
+  more xp than the little ones."* — engaging the value logic and labelling it.
+- Dry grind spots reported *"only mobs too trivial to be worth your time"* — the **floor**
+  actively refusing prey beneath him.
+
+The one thing that couldn't be forced live is the explicit *head-to-head pass-up* (a
+creepy AND a monster up in the same search) — the newbie zone's spawns are too sparse /
+respawn-throttled to line that up on demand. That exact path is covered by the unit test,
+and the `[chose it over: …]` line will print whenever a run catches the zone freshly
+populated. So: **Perry fights up to his weight, ignores what's beneath him, and the "why"
+is legible in the tool output.**
