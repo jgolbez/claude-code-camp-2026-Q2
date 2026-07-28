@@ -228,6 +228,58 @@ only mobs this Perry has beaten are the **sewer bats** (Obs 12). Slice C (the `f
 tool) can't be validated end-to-end until we point Perry at weak prey → the grind-spot
 question is now on the critical path.
 
+### Slice C design — skill-aware, class-agnostic combat (2026-07-28)
+Perry was rerolled again (died in the chessboard during a blind scout — see
+[[dont-blind-drive-perry]]); the user levelled him to **3 ("the Filcher")** and trained
+**backstab (fair)**, **pick lock (poor)**, **sneak (awful)**. This forced the real
+question: **how does combat account for what the character has actually trained**,
+given skills and proficiency differ per class and per character?
+
+**Answer — two data sources, kept separate to stay character-agnostic** (identity in
+config, per [[boukensha-generic-thief-tools]]):
+
+1. **Trained skills, read from the GAME** (`practice` → `{skill => proficiency_word}`).
+   Authoritative and class-agnostic — the game tells us what *this* character knows.
+   Proficiency ladder (this MUD): `awful < bad < poor < average < fair < good <
+   very good < superb`. Refresh on connect and after training/levelling. Stored in
+   character state.
+
+2. **A skill-capability catalog (shared static knowledge)** — maps a skill NAME to how
+   the harness *uses* it: its **role** + **preconditions** + **on-fail**. This is the
+   class-agnostic "how to play" knowledge, not tied to Perry:
+   - `backstab` → role: **opener**; requires: initiating (target not already fighting)
+     + **piercing weapon** wielded; effect: big first-strike multiplier; on-fail: lose
+     surprise but still engage.
+   - `bash`/`kick` (warrior) → role: **combat-move** (per round).
+   - `pick lock` → role: **utility:lock** (navigation — locked door/gate/chest).
+   - `sneak`/`hide` → role: **utility:stealth** (approach; sets up a backstab).
+   - `steal` → role: **utility:theft**.
+
+**The `fight` tool consults both:** from the character's trained skills, pick the
+best-available **opener** whose preconditions hold, use it, then run normal auto-attack
+rounds (+ any per-round combat-moves), then auto-loot. Proficiency gates reliability —
+an `awful`/`poor` skill is unreliable, so the opener is used only above a floor (or
+tried opportunistically when a failure is cheap). Everything degrades gracefully: if no
+opener qualifies, plain attack.
+
+**Immediate consequence for Perry:** his best skill (backstab, *fair*) is **inert** —
+he wields a small sword (slashing), and backstab needs a **piercing** weapon (dagger).
+The catalog precondition "piercing weapon" fails → `fight` correctly skips backstab and
+plain-attacks. So backstab stays unused until Perry wields a dagger. This is the design
+working (graceful degradation), but it means: **to exercise backstab, give Perry a
+dagger.**
+
+**Utility skills wire elsewhere, not into `fight`:** `pick lock` → navigation (when
+travel/explore hits a *locked* door, if pick lock is trained, try it); `sneak`/`hide` →
+approach-for-backstab; `steal` → its own tool. Slice C ships the combat half (skill
+discovery + catalog + `fight` opener logic); the utility wiring is a follow-up.
+
+**Slice C build order:** (C1) skill discovery — parse `practice` into character state;
+(C2) the capability catalog (a plain data map, extensible per class); (C3) `fight` —
+`consider`-gate → optional skill opener → auto-attack rounds → auto-loot → one distilled
+line (outcome + vitals + XP/level delta). Validate against a real crawler/clueless
+newbie once Perry is armed.
+
 ## Technical Conclusions
 
 _(pending)_
