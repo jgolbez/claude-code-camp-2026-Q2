@@ -261,6 +261,10 @@ module Boukensha
         # The MUD hides an over-level zone: every room there shows this instead of
         # its real name. A hard "do not grind here" signal we can back out of.
         overlevel_re = /above your recommended level/i
+        # DEATH-TRAP rooms (e.g. "Mid-Air" on the sewer ledge) zero your HP on entry
+        # and often have no exits — you can't back out, only teleport. Recognise them
+        # so the exit that leads there gets marked off-limits forever.
+        trap_re      = /\bmid-?air\b|you (?:plummet|plunge|fall to your)|free fall|bottomless (?:pit|chasm)/i
 
         # Walk a known route one room at a time, feeding each new room to the
         # world-model and keeping move_pts current. Returns [walked_dirs, interrupt]
@@ -380,6 +384,14 @@ module Boukensha
             # blocked so we don't fixate on it — next explore picks another frontier.
             world.mark_blocked(short, reason: body[/[^\n.]*\b(?:closed|cannot go|can'?t go)[^\n.]*/i])
             return "Explored #{dir} from room ##{before} — blocked (won't retry it): #{body.lines.first&.strip}"
+          end
+
+          if body =~ trap_re
+            # Stepped into a DEATH TRAP (Mid-Air etc.) that zeroed HP — usually no
+            # way back. Mark the exit off-limits and teleport out immediately.
+            world.mark_blocked(short, from_fp: world.fp_for_id(before), reason: "DEATH TRAP")
+            send_cmd.call("teleport MIDGAARD")
+            return "Explored #{dir} from room ##{before} into a DEATH TRAP (#{body.lines.first&.strip}) — it zeroes your HP. Teleported you out, marked that exit off-limits forever. Rest to recover."
           end
 
           if body =~ overlevel_re
@@ -846,11 +858,23 @@ module Boukensha
           } do |direction:|
           next guard.call if guard.call
           begin
+            from_fp  = world.current_fp
             result   = send_cmd.call(p.move(direction))
             enriched = remember.call(result, arrived_via: direction)
+            body     = MudText.strip_ansi(result)
+
+            # DEATH TRAP (e.g. Mid-Air): it zeroed your HP and usually has no way
+            # out. Mark the exit that led here off-limits so we never route through
+            # it again, then teleport to safety.
+            if body =~ trap_re
+              world.mark_blocked(direction.to_s.strip.downcase[0], from_fp: from_fp, reason: "DEATH TRAP")
+              send_cmd.call("teleport MIDGAARD")
+              next "DEATH TRAP — '#{direction}' drops into #{body.lines.first&.strip} which zeroes your HP. Teleported you out and marked that exit off-limits forever. Rest to recover; never go that way."
+            end
+
             # Same guard hunt/explore use, now for deliberate steps: don't let the
             # agent hand-walk into an over-level zone (the Obs B4 chessboard march).
-            if MudText.strip_ansi(result) =~ overlevel_re
+            if body =~ overlevel_re
               back = opp_dir[direction.to_s.strip.downcase[0]]
               if back
                 world.observe(send_cmd.call(p.move(back)))
