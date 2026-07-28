@@ -497,6 +497,31 @@ teleporter + light), **town = never**; (3) seeded the grind-spot tags on the **n
 zone** (#89 "A Bright Hallway", #91) instead of Main Street, so `hunt` anchors to the right
 ladder.
 
+### Obs B4 — grind-spot memory works; poison + manual-move gaps exposed — 2026-07-28
+The seeded newbie zone routed `hunt` correctly: iter 2 *"Found prey: 'creepy' in More Of
+The Hallway (#113)"* — straight to the grind spot, not the chessboard. **3 clean kills**
+(2 creepies +59/+56, a monster +229) → **658 xp from level 4**, and a 4th run with no
+death. So grind-spot memory fixed the *start-of-run* wandering.
+
+But two things bit mid-run, and the user diagnosed the first from the log viewer:
+1. **Poison, misread as "dangerous area."** Perry auto-ate **looted corpse meat**, which
+   was **poisoned** — the HP drain (37→5) that `hunt`'s stop-on-damage flagged as an
+   unsafe zone was self-inflicted poison, not mobs. Cause: `provision`/`upkeep` ate
+   anything matching the broad food regex (incl. `meat`). **Fixed:** auto-eat only
+   reliably-safe staples (`bread|loaf|waybread|ration|biscuit|cheese|apple|…`); never
+   `meat|steak|fish|mushroom|corpse` — and warn when only risky food is on hand.
+2. **Manual moves weren't over-level-guarded.** The back-out protected `hunt`/`explore`
+   but not deliberate `move`s, so the agent hand-walked deep into the chessboard (iters
+   16–21) before teleporting out. **Fixed:** the `move` tool now backs you out of an
+   "above your recommended level" room automatically (same guard).
+
+Still open from Obs B4: when the newbie zone is **temporarily dry** (mobs killed faster
+than they respawn), `hunt` blind-explores instead of cycling known spots / resting for
+respawns — the residual wander. And level 4 is now **respawn-paced** (a ~5-min run can't
+out-grind ~15-min respawns in one small zone), so it accrues across runs (3750→4113 so
+far). Candidate next: `hunt` cycles known grind spots and rests for respawns instead of
+exploring; a second grind ladder (the sewer).
+
 ## Technical Conclusions
 
 The combat arc's core bet — **combat is a decision-offloading problem** — is proven. The

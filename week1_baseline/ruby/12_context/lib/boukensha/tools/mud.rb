@@ -126,8 +126,13 @@ module Boukensha
         # output we read, eat/drink a held item automatically (deterministic, no
         # LLM). When nothing is on hand, append a [upkeep] note pointing at a known
         # source so the agent can decide how to acquire more.
-        food_kw     = /\b(bread|loaf|waybread|ration|meat|steak|fish|cheese|fruit|apple|banana|mushroom|cake|pie|egg)\b/i
-        drink_kw    = /\b(waterskin|flask|canteen|bottle|jug|barrel)\b/i
+        # Auto-eat ONLY reliably-safe staples. Corpse meat and foraged fish/mushrooms
+        # can be POISONED — Perry once ate looted meat and poison-drained his HP (it
+        # even read as "dangerous area"). Never auto-eat those; the agent can still
+        # eat them deliberately with consume_item if it truly means to.
+        food_kw     = /\b(bread|loaf|waybread|ration|biscuit|hardtack|cheese|apple|banana|fruit)\b/i
+        risky_food  = /\b(meat|steak|flesh|fish|mushroom|corpse|carcass)\b/i
+        drink_kw    = /\b(waterskin|flask|canteen|bottle|jug)\b/i
         upkeep_busy = false
 
         # Build a "no supplies" hint from ACTUAL tagged sources in the world-model
@@ -167,7 +172,8 @@ module Boukensha
                 send_cmd.call(p.consume("eat", m[0].downcase))
                 notes << "[upkeep] hungry → ate #{m[0].downcase}."
               else
-                notes << "[upkeep] hungry: " + source_hint.call("food", "buy food")
+                risky = inv =~ risky_food ? "You're carrying meat/fish — do NOT eat it, it may be poisoned. " : ""
+                notes << "[upkeep] hungry — no safe food on hand. #{risky}" + source_hint.call("food", "buy bread")
               end
             end
             if thirsty
@@ -820,14 +826,27 @@ module Boukensha
         # ── Movement ────────────────────────────────────────────────────────
 
         registry.tool "move",
-          description: "Move in a compass direction or up/down.",
+          description: "Move in a compass direction or up/down. If a step lands in a zone " \
+                       "above your level, it backs you out automatically — that terrain is lethal " \
+                       "for a fragile Thief.",
           parameters: {
             direction: { type: "string", description: "Direction: north | east | south | west | up | down" }
           } do |direction:|
           next guard.call if guard.call
           begin
-            result = send_cmd.call(p.move(direction))
-            remember.call(result, arrived_via: direction)
+            result   = send_cmd.call(p.move(direction))
+            enriched = remember.call(result, arrived_via: direction)
+            # Same guard hunt/explore use, now for deliberate steps: don't let the
+            # agent hand-walk into an over-level zone (the Obs B4 chessboard march).
+            if MudText.strip_ansi(result) =~ overlevel_re
+              back = opp_dir[direction.to_s.strip.downcase[0]]
+              if back
+                world.observe(send_cmd.call(p.move(back)))
+                next "That way is ABOVE your recommended level — lethal terrain for you. Backed you out. Use travel_to a safe area or teleport MIDGAARD; do not push deeper."
+              end
+              next "You're in an over-level zone and there's no safe way back the way you came — teleport MIDGAARD to escape now."
+            end
+            enriched
           rescue ArgumentError => e
             "error: #{e.message}"
           end
