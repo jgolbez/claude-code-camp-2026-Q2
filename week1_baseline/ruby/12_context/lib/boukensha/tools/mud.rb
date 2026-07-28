@@ -444,6 +444,23 @@ module Boukensha
           nil
         end
 
+        # Prey PREFERENCE from a consider rating — drives "prefer the hardest safe
+        # mob" (more xp) and a FLOOR below which a mob isn't worth our time. Higher =
+        # better. nil = not engageable (too dangerous / no such mob). Because consider
+        # is RELATIVE to your level, the floor scales automatically: what's "easy" at
+        # level 4 becomes "where did that critter go" (0.0, skipped) once you outlevel
+        # it.
+        prey_pref = lambda do |rating|
+          t = rating.to_s.downcase
+          return nil if t =~ /a lot of luck|feel lucky|are you mad|\bmad\b|death awaits|consider killing who|no ?one|isn'?t here|not here|aren'?t/
+          return 3.0 if t =~ /perfect match/                                 # even fight — best xp for the risk
+          return 2.0 if t =~ /fairly easy|little effort/                     # a real mob — great xp, still safe
+          return 0.5 if t =~ /some luck/                                     # RISKY — engageable topped-up, low priority
+          return 0.0 if t =~ /where did that critter|with a needle|do it with a needle|no (?:problem|contest|sweat)|piece of cake|not even/  # TRIVIAL — below the floor
+          return 1.0 if t =~ /kill it easily|\beasy\b/                       # easy prey (creepy) — modest xp
+          1.0                                                                # unknown-but-safe → treat as easy
+        end
+
         # HUNT — the search-phase offload. Deterministically look for a mob Perry
         # can safely fight: in each room, consider every mob; if none is safe, step
         # to the next room via explore and try again, up to max_rooms. Walks and
@@ -465,35 +482,44 @@ module Boukensha
             return "Low on movement (#{mv_now}) to hunt — I've eaten/drunk so regen isn't blocked. rest_until movement: 60 here (it's safe), then hunt again."
           end
 
-          # Check ONE room for safe prey. Returns a message to hand back (found prey,
-          # or attacked), or nil to keep searching. Guarded/town rooms are skipped.
-          check_here = lambda do |raw, hid|
-            return nil if raw =~ /peacekeeper|cityguard|city\s*guard/i   # never grind town
+          # Best engageable mob in ONE room (or a combat interrupt, or nil). Considers
+          # every mob and returns the HIGHEST-preference one — preferring a harder
+          # mob for the xp, skipping trivially-easy ones (below the floor), and gating
+          # perfect-match/risky on being topped up. Returns { kw:, rating:, pref:, hid: }
+          # or { combat: msg } or nil. Town/guarded rooms are skipped.
+          best_prey_here = lambda do |raw, hid|
+            return nil if raw =~ /peacekeeper|cityguard|city\s*guard/i
+            best = nil
             world.mob_keyword_sets(raw).each do |kwset|
               hit = consider_mob.call(kwset)
               next unless hit
-              kw, rating, tier = hit
+              kw, rating, _tier = hit
               if rating =~ combat_re || rating =~ /swings?\s+at\s+you|takes?\s+a\s+swing|lunges?\s+at\s+you|attacks?\s+you/i
-                return "Attacked while hunting — an aggressive mob in #{world.name_for_id(hid)} (##{hid}) is on you: #{rating}\n→ call fight to kill it, or flee."
+                return { combat: "Attacked while hunting — an aggressive mob in #{world.name_for_id(hid)} (##{hid}) is on you: #{rating}\n→ call fight to kill it, or flee." }
               end
-              # :safe always; :even/:risky only when Perry's topped up (wimpy guards it).
-              engage = tier == :safe
-              if !engage && (tier == :even || tier == :risky)
+              pref = prey_pref.call(rating)
+              next if pref.nil?                                   # unsafe / no such mob
+              if pref <= 0.0                                      # too trivial — not worth our time
+                seen << "#{kw} — \"#{rating}\" (too trivial to bother)"; next
+              end
+              if pref >= 3.0 || pref == 0.5                       # perfect-match / risky need full HP
                 cond = good_condition.call if cond.nil?
-                engage = cond
+                (seen << "#{kw} — \"#{rating}\" (only when topped up)"; next) unless cond
               end
-              if engage
-                world.mark_prey(tier: tier, note: kw)
-                caveat = case tier
-                         when :even  then " A PERFECT MATCH (even fight) — winnable at full strength."
-                         when :risky then " RISKIER (\"some luck\") but you're topped up — winnable, wimpy guards the downside."
-                         else ""
-                         end
-                return "Found prey: '#{kw}' in #{world.name_for_id(hid)} (##{hid}). consider: \"#{rating}\".#{caveat}\n→ call fight with target \"#{kw}\"."
-              end
-              seen << "#{kw} — \"#{rating}\"#{(tier == :even || tier == :risky) ? ' (only at full HP)' : ''}"
+              best = { kw: kw, rating: rating, pref: pref, hid: hid } if best.nil? || pref > best[:pref]
             end
-            nil
+            best
+          end
+
+          # Build the "found prey" reply from a best-prey hash, and tag the grind spot.
+          found_msg = lambda do |b|
+            world.mark_prey(tier: (b[:pref] >= 3 ? :even : b[:pref] <= 0.5 ? :risky : :safe), note: b[:kw])
+            note = if    b[:pref] >= 3.0 then " A PERFECT MATCH — best xp, winnable at full HP."
+                   elsif b[:pref] >= 2.0 then " A proper mob — more xp than the little ones."
+                   elsif b[:pref] == 0.5 then " RISKIER (\"some luck\") but you're topped up; wimpy guards it."
+                   else ""
+                   end
+            "Found prey: '#{b[:kw]}' in #{world.name_for_id(b[:hid])} (##{b[:hid]}). consider: \"#{b[:rating]}\".#{note}\n→ call fight with target \"#{b[:kw]}\"."
           end
 
           # ── Mode 1: KNOWN GRIND SPOTS → cycle them, never blind-wander ──────
@@ -503,7 +529,7 @@ module Boukensha
           # thing that kept marching Perry into town / the sewer / the chessboard.
           spots = world.prey_room_ids
           if spots.any?
-            checked = []
+            checked = []; best = nil
             ([world.current_id] + spots).compact.uniq.each do |sid|
               if sid != world.current_id
                 rt = world.route_to(sid)
@@ -515,12 +541,26 @@ module Boukensha
               raw = send_cmd.call(p.look); world.observe(raw)
               hp = hp_of.call(raw); start_hp ||= hp
               return "Stopped hunting — you're taking damage (HP #{hp}). Get to a safe room and rest before hunting again." if hp && start_hp && hp <= [start_hp / 2, 10].max
-              res = check_here.call(raw, world.current_id)
-              return res if res
+              res = best_prey_here.call(raw, world.current_id)
+              return res[:combat] if res.is_a?(Hash) && res[:combat]
+              if res.is_a?(Hash)
+                best = res if best.nil? || res[:pref] > best[:pref]
+                # A proper mob (perfect-match / fairly-easy) is worth taking at once —
+                # no point searching further. Trivial/easy/risky prey we remember and
+                # keep checking the other spots for something better.
+                return found_msg.call(res) if res[:pref] >= 2.0
+              end
               checked << world.current_id
             end
+            # Cycle done. Take the best low-value fallback we saw, walking back to it.
+            if best
+              if best[:hid] != world.current_id
+                rt = world.route_to(best[:hid]); walk_route.call(rt) if rt && !rt.empty?
+              end
+              return found_msg.call(best)
+            end
             names = checked.uniq.map { |i| "#{world.name_for_id(i)} (##{i})" }
-            return "Your known grind spots (#{names.join(', ')}) are all clear right now — mobs respawn on a timer. rest_until here (it's safe), then hunt again shortly. NOT wandering off — unknown areas are where the danger is."
+            return "Your known grind spots (#{names.join(', ')}) are all clear (or only mobs too trivial to be worth your time) right now — they respawn on a timer. rest_until here (it's safe), then hunt again shortly. NOT wandering off — unknown areas are where the danger is."
           end
 
           # ── Mode 2: BOOTSTRAP → no grind spot known yet, explore to find one ──
@@ -532,8 +572,9 @@ module Boukensha
             hp = hp_of.call(raw); start_hp ||= hp
             return "Stopped hunting — you're taking damage while searching (HP #{hp} from #{start_hp}). Rest somewhere safe, then hunt in the newbie zone (the level 1–5 grind)." if hp && start_hp && hp <= [start_hp / 2, 10].max
 
-            res = check_here.call(raw, hid)
-            return res if res
+            res = best_prey_here.call(raw, hid)
+            return res[:combat] if res.is_a?(Hash) && res[:combat]
+            return found_msg.call(res) if res.is_a?(Hash)
 
             step = begin
               explore.call
@@ -548,8 +589,8 @@ module Boukensha
               return "Hunt paused — not enough movement to search further. #{step}"
             end
           end
-          detail = seen.empty? ? "no mobs at all" : "only mobs too strong to fight safely: #{seen.uniq.first(6).join('; ')}"
-          "No safe prey found after searching #{route.uniq.size} room#{route.uniq.size == 1 ? '' : 's'} (#{route.uniq.map { |x| "##{x}" }.join(', ')}). Found #{detail}.\n→ Relocate to the newbie zone (level 1–5 grind) and hunt there — don't wander into unknown areas."
+          detail = seen.empty? ? "no mobs at all" : "only mobs not worth fighting: #{seen.uniq.first(6).join('; ')}"
+          "No worthwhile prey found after searching #{route.uniq.size} room#{route.uniq.size == 1 ? '' : 's'} (#{route.uniq.map { |x| "##{x}" }.join(', ')}). Found #{detail}.\n→ Relocate to the newbie zone (level 1–5 grind) and hunt there — don't wander into unknown areas."
         end
 
         # SEEK — find a PLACE by name you haven't mapped yet. `explore` in a

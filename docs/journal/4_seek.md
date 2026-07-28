@@ -142,3 +142,19 @@ resting).
 **Section complete.** The toolkit — `move · travel_to · explore · hunt · fight · seek` —
 plus the survival layer (wimpy · provision · **heal** · **safe sleep**) is built, proven,
 and journaled. Navigation → combat: done. Next ability: **planning**.
+
+### Follow-up — prey prioritization (built) 2026-07-28
+`hunt` used to stop at the *first* engageable mob (a trivial creepy worth ~60 xp) even
+when a proper monster (~200 xp) was a room over. Now it works on a **value band** driven
+by the consider rating (`prey_pref`): perfect-match (3) > fairly-easy monster (2) >
+easy creepy (1) > "some luck" (0.5, risky, opt-in) — with a **floor** below which prey
+is *skipped as not worth the time* ("where did that critter go", "with a needle", etc.).
+The floor **auto-scales with level** because consider is relative — what's "easy" at
+level 4 becomes below-floor once you outlevel it.
+- **Within a room:** pick the highest-value mob, not the first.
+- **Across grind spots (satisfice):** take a value≥2 mob at once; only skip past
+  trivial/easy/risky prey to check the other known spots for something better, then fall
+  back to the best seen. Avoids both "grind a creepy while a monster's next door" and
+  "wander forever hoping for a better mob."
+`:even`/`:risky` still gated on being topped up; safety unchanged. Band + floor +
+within-room-best unit-tested; live hunt runs clean.
