@@ -476,28 +476,42 @@ module Boukensha
 
           # Skill-aware opener.
           opener_note = "plain attack"
-          struck = false
+          struck  = false
+          swapped = false
+          main_kw = nil
           opener, prof = Boukensha::Skills.openers(load_skills.call[:skills]).first
           if opener == "backstab"
-            eq      = MudText.strip_ansi(send_cmd.call(p.info_self("equipment")))
-            main_kw = eq[/<wielded>\s+(.+)/i, 1]&.strip&.sub(/\s*\.\..*/, "")&.split&.last
-            dagger  = find_dagger.call
-            if dagger.nil?
-              opener_note = "backstab (#{prof}) trained but no dagger carried — plain attack"
-            else
-              send_cmd.call(p.equip("wield", dagger))
-              bs = MudText.strip_ansi(send_cmd.call(p.skill_strike("backstab", tgt)))
-              if bs =~ /piercing weapon|only.*(?:pierc|stab)|cannot backstab|not proficient/i
-                opener_note = "backstab needs a piercing weapon — skipped, plain attack"
-              elsif bs =~ /they aren'?t here|no ?one (?:by that|here)|isn'?t here/i
-                send_cmd.call(p.equip("wield", main_kw)) if main_kw
-                return "'#{tgt}' is gone — nothing to fight now."
-              else
-                struck      = true
-                opener_note = bs =~ /miss|fail|feint/i ? "backstab MISSED (#{prof}) — lost surprise, fighting on" : "backstab landed (#{prof})"
+            pierce_fail = /piercing weapon|only.*(?:pierc|stab)/i
+            attempt = -> { MudText.strip_ansi(send_cmd.call(p.skill_strike("backstab", tgt))) }
+
+            # Try with the CURRENT weapon first — some "swords" are piercing. Only
+            # swap in a carried dagger if the game rejects the weapon type. (A
+            # weapon-type rejection aborts before combat, so retrying is safe.)
+            bs = attempt.call
+            if bs =~ pierce_fail
+              eq      = MudText.strip_ansi(send_cmd.call(p.info_self("equipment")))
+              main_kw = eq[/<wielded>\s+(.+)/i, 1]&.strip&.sub(/\s*\.\..*/, "")&.split&.last
+              if (dagger = find_dagger.call)
+                send_cmd.call(p.equip("wield", dagger))
+                swapped = true
+                bs = attempt.call
               end
-              send_cmd.call(p.equip("wield", main_kw)) if main_kw   # best-damage weapon for the fight
             end
+
+            if bs =~ pierce_fail
+              opener_note = "backstab (#{prof}) — no piercing weapon available, plain attack"
+            elsif bs =~ /they aren'?t here|no ?one (?:by that|here)|isn'?t here/i
+              send_cmd.call(p.equip("wield", main_kw)) if swapped && main_kw
+              return "'#{tgt}' is gone — nothing to fight now."
+            elsif bs =~ /can'?t backstab.*fight|already fighting|while .*fighting/i
+              opener_note = "target already engaged — plain attack"
+            else
+              struck      = true
+              opener_note = bs =~ /miss|fail|feint|fumble/i ? "backstab MISSED (#{prof}) — lost surprise, fighting on" : "backstab landed (#{prof})"
+            end
+            # If we swapped to a dagger for the strike, return to the main weapon
+            # (best sustained damage) for the rest of the fight.
+            send_cmd.call(p.equip("wield", main_kw)) if swapped && main_kw
           end
 
           send_cmd.call(p.attack("kill", tgt)) unless struck

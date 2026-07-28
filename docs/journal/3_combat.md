@@ -296,10 +296,32 @@ newbie once Perry is armed.
   to low-level fallbacks in their tool docs.
 - Registry loads clean at **40 tools**; `fight` + `hunt` present.
 
-**Not yet validated live:** needs Perry positioned at a **consider-safe crawler /
-clueless newbie**, and — to exercise the backstab path — a **dagger in his pack** (he
-currently carries none, so `fight` would plain-attack). Deliberately NOT auto-navigating
-him there (that blind-drive is what killed the last Perry — [[dont-blind-drive-perry]]).
+**Refinement (from a user test):** this small sword's damage type is **piercing**, so
+backstab works with it directly. The opener was rewritten to **try backstab with the
+currently-wielded weapon first**, and only swap in a carried dagger if the game rejects
+the weapon type (a weapon-type rejection aborts before combat, so the retry is safe).
+Handles the piercing-sword case with no pointless swap.
+
+### Obs C — `fight` validated live (deterministic, no LLM) — 2026-07-28
+User parked Perry at a **clueless newbie** (*"A newbie is here annoying the hell out of
+you"*, `consider` = "Fairly easy") and I ran one `fight`:
+
+> **Killed 'annoying' — backstab landed (fair). +207 xp (1543 to next level). Looted
+> corpse. HP 37/37.**
+
+Every piece of the chain fired in a single call: consider-gate (safe) → wimpy floor →
+**backstab landed with the small sword** (piercing confirmed, no swap) → poll-to-kill →
+auto-loot (gold 96→116, +20) → xp delta (+207) → one distilled line, **no round spam**.
+Perry took **zero damage** (backstab + weak mob = one-shot). Slice C works end to end.
+
+**Minor note (not a bug):** the chosen target keyword was `annoying` (longest word won
+over `newbie`); `consider`/`kill` matched it fine, but preferring the mob-noun would read
+cleaner — a small `mob_keyword_sets` refinement for later.
+
+**Where this leaves the arc:** the two offloads (`hunt` search + `fight` kill) are both
+built and proven. Remaining to close the acceptance test: run them together under the
+LLM (**Obs B**) so the agent grinds clueless-newbies/crawlers to level 4 and trains a
+skill — the end-to-end the whole arc is for.
 
 ## Technical Conclusions
 
