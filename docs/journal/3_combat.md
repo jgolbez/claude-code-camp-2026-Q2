@@ -323,9 +323,54 @@ built and proven. Remaining to close the acceptance test: run them together unde
 LLM (**Obs B**) so the agent grinds clueless-newbies/crawlers to level 4 and trains a
 skill — the end-to-end the whole arc is for.
 
+### Obs B — LLM drives hunt+fight; the offload is proven, one bug broke it — 2026-07-28
+Ran Haiku on *"reach level 4, then train."* Perry survived (no death — the safety
+discipline held). **A decision-flow trace** (`scratchpad/flow_trace.rb`, reconstructs
+DECIDE→call→result→cost per iteration; the observability the run was for) told the whole
+story:
+
+**The thesis is PROVEN — when the tools ran (iters 3–4):**
+```
+iter 3  ★ hunt   ⇒ Found prey: 'monster' (#91) "Fairly easy" → call fight
+iter 4  ★ fight  ⇒ Killed 'monster' — backstab landed (fair). +203 xp. Looted. HP 37/37.
+```
+**Two LLM decisions = one mob found and killed, backstab and all, zero round spam.** The
+entire combat-as-offload bet, demonstrated end to end.
+
+**One bug detonated the rest (iter 5):** `hunt` **crashed** with
+`ArgumentError: invalid direction "(d)"`. Root cause: `parse_room` keeps a closed-door
+token `(d)` as an exit; when `hunt`'s internal `explore` stepped through that frontier,
+`p.move("(d)")` raised (the `mark_blocked` fix never fired — the crash precedes the
+blocked-check). Earlier live tests never landed in a `(d)` room.
+
+**The crash caused the bad numbers:** with `hunt` broken, the agent **fell back to
+hand-walking** — `move ×20` (iters 15–35), the Obs A anti-pattern — which drove the
+token cap (120K at iter 35). Offload ratio looked poor (7 high / 31 low) but that is
+**entirely the crash's fallback**; pre-crash it was ideal.
+
+**Fixed:** `explore` now normalises the frontier token (`(d)` → `down`) before moving
+and marks anything non-directional blocked; `hunt` gained a defensive rescue so no
+internal error can ever crash the loop again. Verified by construction + registry loads
+clean (40 tools). *(Proper follow-up: normalise parens in `parse_room` itself, with a
+fingerprint migration — deferred to avoid re-mapping door rooms.)*
+
+**Two things that held up well:**
+- **Safety.** The agent engaged a "perfect match" quasit; the `fight` wimpy floor
+  auto-fled it at no HP loss (37/37), and later it fled a "some luck" zombie cleanly.
+  Consider-gate + wimpy + flee = Perry survived a run that the blind script would have
+  killed him in.
+- **Observability.** The flow-trace made "is the loop offloading?" answerable at a
+  glance — exactly the week-2 discipline.
+
+**Still open:** prey scarcity. Even with working tools, "Fairly easy" prey is sparse;
+the agent drifted off the clueless-newbie spot into perfect-match quasits / tough
+zombies. Needs grind-location guidance (or hunt ranging wider). Minor: `travel_to
+"Midgaard Temple"` didn't resolve (room is "The Temple Of Midgaard") → fell back to
+nearest frontier; a name-resolution nicety.
+
 ## Technical Conclusions
 
-_(pending)_
+_(pending — after a clean re-run confirms the offload holds without the `(d)` crash.)_
 
 ## Key Takeaway
 

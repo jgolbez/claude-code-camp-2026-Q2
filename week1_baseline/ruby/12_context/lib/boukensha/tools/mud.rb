@@ -332,8 +332,18 @@ module Boukensha
           return "Reached room ##{world.current_id} but it has no unexplored exits after all — the map already covers its neighbours. Call explore again for the next frontier." if dirs.empty?
 
           short  = dirs.first
-          dir    = full_dir[short] || short
+          # A room's exit list can carry a parenthesised token for a closed door,
+          # e.g. "(d)" — that's NOT a valid move direction and p.move would raise.
+          # Normalise to the bare direction before moving; keep `short` as the map
+          # key for mark_blocked.
+          norm   = short.to_s.gsub(/[^a-zA-Z]/, "").downcase
+          dir    = full_dir[norm] || norm
           before = world.current_id
+
+          unless %w[north south east west up down].include?(dir)
+            world.mark_blocked(short, reason: "not a walkable exit")
+            return "Explored from room ##{before}: #{short.inspect} isn't a real direction (marked, won't retry). Call explore again for the next frontier."
+          end
 
           result   = send_cmd.call(p.move(dir))
           enriched = remember.call(result, arrived_via: dir)
@@ -403,9 +413,13 @@ module Boukensha
               end
               seen << "#{kw} — \"#{rating}\""
             end
-            step = explore.call
+            step = begin
+              explore.call
+            rescue StandardError => e
+              "Nothing left to explore — search halted (#{e.class}: #{e.message})"
+            end
             case step
-            when /Nothing left to explore|no unexplored exits/i then break
+            when /Nothing left to explore|no unexplored exits|search halted/i then break
             when /COMBAT/i
               return "Attacked while hunting — now in #{world.name_for_id(world.current_id)} (##{world.current_id}). Handle it:\n#{step}"
             when /Can'?t explore right now/i
@@ -707,7 +721,11 @@ module Boukensha
             max_rooms: { type: "integer", description: "How many rooms to search before giving up (default 12)" }
           } do |max_rooms: 12|
           next guard.call if guard.call
-          hunt.call(max_rooms: (max_rooms || 12).to_i.clamp(1, 40))
+          begin
+            hunt.call(max_rooms: (max_rooms || 12).to_i.clamp(1, 40))
+          rescue MudManager::Session::Error, ArgumentError => e
+            "Hunt stopped on an error (#{e.message}). You're safe where you are — try `look`, then move or hunt again."
+          end
         end
 
         registry.tool "plan_route",
