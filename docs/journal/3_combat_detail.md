@@ -522,6 +522,17 @@ out-grind ~15-min respawns in one small zone), so it accrues across runs (3750�
 far). Candidate next: `hunt` cycles known grind spots and rests for respawns instead of
 exploring; a second grind ladder (the sewer).
 
+### Obs B5 — cleanest run of the arc; fixes validated — 2026-07-28
+Re-ran with the poison + move-guard fixes. Both fired correctly: the **move over-level
+guard** backed Perry out of a lethal zone twice (*"Backed you out… teleport MIDGAARD"*)
+and he teleported home instead of the chessboard march; **`consume_item` was called only
+once** (a deliberate drink) — no auto-eaten poison meat. **Best offload ratio of the arc:
+19 high-level / 18 low-level** calls (vs Obs A all-hand-walking, Obs B 7/31). 5 clean
+backstab kills (janitor +55, fido +70, sparrow +56, duck +63, crier), near-full HP, **no
+death (5th run)**, steady to **354 xp from level 4**. Residual friction is now purely
+*pacing*: Perry's 88-max movement drains walking between spawns (forces rests), and level
+4 is respawn-gated (~5-6 more kills). No capability gap remains — the arc is proven.
+
 ## Technical Conclusions
 
 The combat arc's core bet — **combat is a decision-offloading problem** — is proven. The
