@@ -1026,16 +1026,31 @@ module Boukensha
               mv: s[/(\d+)\(\d+\)\s+movement/i, 1]&.to_i, raw: s }
           end
 
-          # Safety gate: never rest/sleep into danger.
+          # Safety gate: never rest/sleep into danger. Sleeping to heal leaves you
+          # UNAWARE, so beyond an over-level zone or an active attack, refuse if ANY
+          # mob is in the room — it can maul a sleeping Perry before he wakes. Move
+          # to an empty room (or teleport to the Temple) to heal. Stand up FIRST so
+          # the look shows the actual room (a sleeping char just sees "In your
+          # dreams…", which would blind this check). From sleep you must wake before
+          # you can stand.
+          send_cmd.call(p.set_position("wake"))
+          send_cmd.call(p.set_position("stand"))
           here = MudText.strip_ansi(send_cmd.call(p.look))
           next "Won't rest here — this zone is above your level (unsafe). teleport MIDGAARD or move to a safe room first." if here =~ overlevel_re
           next "Won't rest — you're under attack. Deal with the threat (fight or flee) before resting." if here =~ combat_re
+          mobs_here = world.mob_keyword_sets(here).map { |m| m[:keywords].first }.compact.uniq
+          unless mobs_here.empty?
+            next "Not safe to rest here — there's something in the room (#{mobs_here.first(3).join(', ')}) that could attack you while you sleep. Move to an EMPTY room first, or teleport MIDGAARD (the Temple is safe), then rest_until."
+          end
 
           start = read.call
           hp_target = (hp && start[:maxhp]) ? [hp.to_i, (start[:maxhp] * 0.85).ceil].min : nil
           mv_target = movement&.to_i
           next "Give a target: hp (to heal) and/or movement (to recover for a trip)." if hp_target.nil? && mv_target.nil?
           reached = lambda { |s| (hp_target.nil? || (s[:hp] && s[:hp] >= hp_target)) && (mv_target.nil? || (s[:mv] && s[:mv] >= mv_target)) }
+          if reached.call(start)
+            next "Already rested — HP #{start[:hp]}/#{start[:maxhp]}#{mv_target ? ", #{start[:mv]} move" : ''}. Nothing to recover; you're ready."
+          end
 
           fed = provision.call
           healing = !hp_target.nil?
@@ -1059,6 +1074,7 @@ module Boukensha
             last = s
             break if stalls >= 6
           end
+          send_cmd.call(p.set_position("wake"))   # must wake before standing, when we slept
           send_cmd.call(p.set_position("stand"))
           move_pts = last[:mv] if last[:mv]
           vit = "HP #{last[:hp]}/#{last[:maxhp]}#{last[:mv] ? ", #{last[:mv]} move" : ''}"
