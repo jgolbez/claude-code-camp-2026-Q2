@@ -1008,67 +1008,68 @@ module Boukensha
         end
 
         registry.tool "rest_until",
-          description: "Recover by resting. Rests to regenerate movement (and HP along with it), " \
-                       "polling until the target (or regen stalls), then stands. It first checks the " \
-                       "room is SAFE and that hunger/thirst won't block regen (eating/drinking your " \
-                       "supplies as needed). Rest between fights when you're hurt — but it will refuse " \
-                       "if you're in danger, telling you to reach safety first.",
+          description: "Recover by resting/sleeping until a target — HP and/or MOVEMENT. Give `hp` to " \
+                       "HEAL between fights (it SLEEPS, which regens HP fastest, and caps near ~85% of " \
+                       "your max since the last stretch crawls); give `movement` to recover for a trip. " \
+                       "It checks the room is SAFE first and eats/drinks so hunger/thirst don't block " \
+                       "regen; it refuses if you're in danger and wakes if a fight starts. After a rough " \
+                       "fight, rest_until hp: BEFORE fighting again — don't fight wounded.",
           parameters: {
-            movement: { type: "integer", description: "Target movement points to reach before standing" }
-          } do |movement:|
+            hp:       { type: "integer", description: "Target HP to heal to (sleeps; auto-capped near 85% of your max). Use when hurt." },
+            movement: { type: "integer", description: "Target movement points (rests). Use before a trip." }
+          } do |hp: nil, movement: nil|
           next guard.call if guard.call
-          target = movement.to_i
 
-          # Safety gate: don't rest into danger. Refuse in an over-level zone or if
-          # something is on us — resting there just gets Perry killed.
+          read = lambda do
+            s = MudText.strip_ansi(send_cmd.call(p.info_self("score")))
+            { hp: s[/(\d+)\(\d+\)\s+hit/i, 1]&.to_i, maxhp: s[/\d+\((\d+)\)\s+hit/i, 1]&.to_i,
+              mv: s[/(\d+)\(\d+\)\s+movement/i, 1]&.to_i, raw: s }
+          end
+
+          # Safety gate: never rest/sleep into danger.
           here = MudText.strip_ansi(send_cmd.call(p.look))
-          if here =~ overlevel_re
-            next "Won't rest here — this zone is above your level (unsafe). teleport MIDGAARD or move to a safe room first, then rest."
-          end
-          if here =~ combat_re
-            next "Won't rest — you're under attack. Deal with the threat (fight or flee) before resting."
-          end
+          next "Won't rest here — this zone is above your level (unsafe). teleport MIDGAARD or move to a safe room first." if here =~ overlevel_re
+          next "Won't rest — you're under attack. Deal with the threat (fight or flee) before resting." if here =~ combat_re
 
-          # Make sure hunger/thirst won't block regen (proactive eat/drink).
+          start = read.call
+          hp_target = (hp && start[:maxhp]) ? [hp.to_i, (start[:maxhp] * 0.85).ceil].min : nil
+          mv_target = movement&.to_i
+          next "Give a target: hp (to heal) and/or movement (to recover for a trip)." if hp_target.nil? && mv_target.nil?
+          reached = lambda { |s| (hp_target.nil? || (s[:hp] && s[:hp] >= hp_target)) && (mv_target.nil? || (s[:mv] && s[:mv] >= mv_target)) }
+
           fed = provision.call
+          healing = !hp_target.nil?
+          send_cmd.call(p.set_position(healing ? "sleep" : "rest"))   # sleep heals fastest
 
-          send_cmd.call(p.set_position("rest"))
-          start       = parse_v.call(send_cmd.call(p.info_self("score"))).to_i
-          last        = start
-          stalls      = 0
+          last = start
+          stalls = 0
           interrupted = false
-          # Poll ~15s apart so each wait can span a regen tick (~75s in CircleMUD);
-          # give up only after several consecutive no-gain checks.
-          12.times do
-            break if last >= target
+          # Poll ~15s apart (a CircleMUD tick is ~75s); healing to 85% can span
+          # several ticks, so allow a generous window before giving up.
+          20.times do
+            break if reached.call(last)
             sleep 15
             score = MudText.strip_ansi(send_cmd.call(p.info_self("score")))
-            # Interrupted by combat mid-rest — stop before we sleep through a fight.
-            if score =~ combat_re || score =~ /you are fighting/i
-              interrupted = true
-              break
+            if score =~ /you are fighting/i || score =~ /you (?:awaken|wake)/i || score =~ combat_re
+              interrupted = true; break
             end
-            v = parse_v.call(score).to_i
-            if v <= last            # regen stalled — likely hunger/thirst; provision and retry
-              fed |= provision.call
-              stalls += 1
-            else
-              stalls = 0
-            end
-            last = v
+            s = { hp: score[/(\d+)\(\d+\)\s+hit/i, 1]&.to_i, maxhp: score[/\d+\((\d+)\)\s+hit/i, 1]&.to_i, mv: score[/(\d+)\(\d+\)\s+movement/i, 1]&.to_i }
+            gained = (s[:hp].to_i > last[:hp].to_i) || (s[:mv].to_i > last[:mv].to_i)
+            gained ? (stalls = 0) : (fed |= provision.call; stalls += 1)
+            last = s
             break if stalls >= 6
           end
           send_cmd.call(p.set_position("stand"))
-          move_pts = last
-          next "Rest interrupted — a fight started (now at #{last} movement). Standing. Handle it, then rest again when safe." if interrupted
+          move_pts = last[:mv] if last[:mv]
+          vit = "HP #{last[:hp]}/#{last[:maxhp]}#{last[:mv] ? ", #{last[:mv]} move" : ''}"
+          next "Rest interrupted — a fight started (#{vit}). Standing — handle it." if interrupted
           ate = fed.empty? ? "" : " (#{fed.uniq.join(', ')})"
-          if last >= target
-            "Rested to #{last} movement points#{ate}. Standing, ready."
-          elsif last > start
-            "Rested to #{last} movement points#{ate} (target #{target} not fully reached; regen is slow). Standing."
+          if reached.call(last)
+            "Rested up#{ate} — #{vit}. Standing, ready."
+          elsif (last[:hp].to_i > start[:hp].to_i) || (last[:mv].to_i > start[:mv].to_i)
+            "Recovered to #{vit}#{ate} (target not fully reached — regen is slow; call rest_until again to keep going). Standing."
           else
-            "No movement recovered (now #{last})#{ate}. Regen may be blocked — you may be out of food/water, " \
-            "or the room keeps interrupting rest. Standing."
+            "No recovery (#{vit})#{ate}. Regen may be blocked — out of food/water, or the room keeps interrupting. Standing."
           end
         end
 

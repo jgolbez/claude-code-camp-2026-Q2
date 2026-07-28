@@ -39,6 +39,13 @@ thinking terse.
   the tool run — panic-fleeing a full-HP situation just wastes turns and gold. If a
   mob attacks you outside a fight, answer with `fight` (it will refuse if it's too
   dangerous), not a reflexive flee.
+- **Heal before you fight again — never fight wounded.** After a fight leaves you
+  hurt, `rest_until hp: <target>` in the safe room to heal back up *before* the next
+  fight (it sleeps you to full-ish, eating/drinking as needed). Do NOT `force` a
+  fight while wounded to "finish" a mob — you'll just get wimpy-fled at low HP again.
+  And if a mob is genuinely too strong for you 1-on-1 (a "some luck" fight that
+  hammers you even at full HP), it's not your prey — `hunt` for an easier one instead
+  of grinding yourself down on it.
 - **Where to grind (this matters — most runs fail by hunting in the wrong place):**
   - **Levels 1–5 → the newbie zone**, north / out the back of the Temple (clueless
     newbies, "monster", crawlers). This is your home base. It connects *upward* into
