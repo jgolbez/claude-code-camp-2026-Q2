@@ -486,6 +486,23 @@ now grind-spot *rediscovery*. The acceptance test (level 4 + train) is one navig
 fix — **grind-spot memory** — from closing. New uncertainty parked for later: the
 parse_room parens/fingerprint migration, and a `move`-level over-level guard.
 
+### Slice E — grind-spot memory (built, unit-tested) — 2026-07-28
+The closing piece from the Obs B3 diagnosis. The map remembered *terrain* but not its
+*value*, and `hunt` preferred unexplored frontiers over known-good rooms — so it walked
+away from proven prey into the chessboard. Fixed:
+- **Tag** (`world.mark_prey`): when `hunt` confirms `:safe`/`:even`/`:risky` prey, the room
+  is tagged as a grind spot (persisted in `world.json` beside the resource tags).
+- **Prefer** (`world.nearest_prey_route` + hunt): at the start of every `hunt`, if a known
+  grind spot is reachable and affordable, walk there *first* (deterministically) before
+  any blind exploration. Already-there → empty route → no reposition.
+- **Surface**: the "no safe prey" report now names the top known grind spots so the LLM
+  can `travel_to` them too.
+
+Unit-tested the tag/route/already-there cases; registry loads at 40 tools. This should
+put the *whole* budget into the proven hunt→fight loop instead of re-discovering the
+grind spot each run — the last thing between Obs B3's 5-kill streak and the level-4
+acceptance test.
+
 ## Key Takeaway
 
 Make the tools own the whole fight — search, opener, kill, chase, loot, and safety — and

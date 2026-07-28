@@ -279,6 +279,39 @@ module Boukensha
 
     def rooms_with_resource(kind) = @rooms.values.select { |r| (r["resource"] || []).include?(kind) }
 
+    # ── Grind spots: where safe prey has been found ───────────────────────
+    # Prey respawns, so a tag marks a good area to RETURN to (not a guaranteed
+    # mob). Lets hunt route to known-good hunting instead of exploring blind.
+    def mark_prey(tier:, note: nil, from_fp: @current_fp)
+      room = from_fp && @rooms[from_fp]
+      return unless room
+      room["prey"] = { "tier" => tier.to_s, "note" => note.to_s, "last" => now }
+      save
+    end
+
+    # Grind-spot room ids, most-recently-confirmed first.
+    def prey_room_ids
+      @rooms.values.select { |r| r["prey"] }
+            .sort_by { |r| r.dig("prey", "last").to_s }.reverse.map { |r| r["id"] }
+    end
+
+    # BFS route to the nearest known grind spot reachable over walked edges.
+    # Returns [directions, room_id] ([] dirs = we're already there), or nil.
+    def nearest_prey_route(from_fp: @current_fp, exclude: [])
+      best = nil
+      (prey_room_ids - exclude).each do |id|
+        rt = route_to(id, from_fp: from_fp)
+        next if rt.nil?
+        best = [rt, id] if best.nil? || rt.length < best[0].length
+      end
+      best
+    end
+
+    def prey_here?(from_fp: @current_fp)
+      room = from_fp && @rooms[from_fp]
+      !!(room && room["prey"])
+    end
+
     # Directions out of a room whose exit is advertised but not yet WALKED — the
     # frontier legs `explore` can step through to map new territory. Sorted for a
     # deterministic choice, and exits whose destination NAME is already known

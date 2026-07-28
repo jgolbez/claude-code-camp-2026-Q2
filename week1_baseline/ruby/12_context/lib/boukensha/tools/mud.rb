@@ -438,6 +438,17 @@ module Boukensha
           cond     = nil  # Perry's condition, computed lazily once per hunt
           hp_of    = ->(t) { (m = MudText.strip_ansi(t.to_s)[/(\d+)H\s+\d+M\s+\d+V/, 1]) && m.to_i }
           start_hp = nil
+
+          # Reposition to the nearest KNOWN grind spot first — that's where safe prey
+          # actually is, versus exploring blind frontiers into who-knows-what (the
+          # Obs B3 chessboard detour). Skip if we're already at/near one or can't
+          # afford the walk; the normal search below still runs from wherever we end.
+          pr = world.nearest_prey_route
+          if pr && !pr[0].empty?
+            est = world.route_cost(pr[0])
+            walk_route.call(pr[0]) if move_pts.nil? || est[:total] <= move_pts
+          end
+
           max_rooms.times do
             raw = send_cmd.call(p.look)
             world.observe(raw)
@@ -470,6 +481,7 @@ module Boukensha
                 engage = cond
               end
               if engage
+                world.mark_prey(tier: tier, note: kw)   # remember this grind spot
                 caveat = case tier
                          when :even  then " It's a PERFECT MATCH (even fight) — you're at full strength, so winnable."
                          when :risky then " It's RISKIER (\"some luck\") but you're topped up — winnable, and wimpy pulls you out if it turns."
@@ -493,7 +505,10 @@ module Boukensha
             end
           end
           detail = seen.empty? ? "no mobs at all" : "only mobs too strong to fight safely:\n  - #{seen.uniq.first(8).join("\n  - ")}"
-          "No safe prey found after searching #{route.uniq.size} room#{route.uniq.size == 1 ? '' : 's'} (#{route.uniq.map { |x| "##{x}" }.join(', ')}). Found #{detail}.\n→ This area is too tough. Relocate to a weaker area, or report the level-up goal blocked here."
+          spots  = world.prey_room_ids.first(3).map { |i| "#{world.name_for_id(i)} (##{i})" }
+          hint   = spots.empty? ? "Relocate to a weaker area, or report the level-up goal blocked." :
+                   "Try a KNOWN grind spot: travel_to #{spots.join(' or ')}, then hunt again."
+          "No safe prey found after searching #{route.uniq.size} room#{route.uniq.size == 1 ? '' : 's'} (#{route.uniq.map { |x| "##{x}" }.join(', ')}). Found #{detail}.\n→ #{hint}"
         end
 
         # ── Combat: skill-aware fight-to-completion ─────────────────────────
