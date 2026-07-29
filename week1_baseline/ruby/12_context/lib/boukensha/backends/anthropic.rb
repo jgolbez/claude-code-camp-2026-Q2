@@ -26,6 +26,18 @@ module Boukensha
           context_window: 1_000_000,
           cost_per_million: { input: 5.0, output: 25.0 },
           usage_unit: :tokens
+        },
+        # Claude 5 family — used here as the PLANNER (planning arc). Costs are
+        # tier-matched placeholders (sonnet/opus tiers) for telemetry only.
+        "claude-sonnet-5" => {
+          context_window: 1_000_000,
+          cost_per_million: { input: 3.0, output: 15.0 },
+          usage_unit: :tokens
+        },
+        "claude-opus-5" => {
+          context_window: 1_000_000,
+          cost_per_million: { input: 5.0, output: 25.0 },
+          usage_unit: :tokens
         }
       }.freeze
 

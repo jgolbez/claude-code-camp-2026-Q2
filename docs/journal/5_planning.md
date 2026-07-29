@@ -76,6 +76,30 @@ when stuck), and let cheap/fast Haiku drive the tool loop it's already proven at
 4. **Orchestrator + plan persistence** — sequence milestones, replan on block, persist.
 5. **Validate** on the acceptance test; flow-trace the planner/executor handoffs.
 
+## Decisions (confirmed)
+
+Planner model: **`claude-sonnet-5`**. Acceptance test: **reach level 5 + train backstab**.
+
 ## Observations
 
-_(to be filled as built.)_
+### Slice 1+2 — two models work; the planner decomposes cleanly (2026-07-29)
+**Harness supports two models with no new plumbing:** `Boukensha.run(model:, mud: false,
+working_dir: false)` gives a **tool-less reasoning call** with any model — exactly the
+planner (Sonnet-5, no MUD loop); the executor stays the Haiku+MUD run. (One gap: the
+backend's model allowlist didn't know the Claude 5 IDs — added `claude-sonnet-5` /
+`claude-opus-5` to `backends/anthropic.rb` + `models.rb`.)
+
+**Sonnet-5's decomposition was excellent** — fed the goal + Perry's real state (level 4,
++4457 xp to 5, 1 practice session, backstab fair) and a description of the executor's
+tools, it returned a **valid JSON milestone plan**: assess → **heal to full** → **grind
+(hunt/fight/rest) until level 5** → confirm level-up → **travel to the Thieves' guild
+(seek/travel_to)** → **train backstab (practice)** → verify. Correct sequencing
+(dependencies first), every milestone mapped to real tools, checkable `done_when`
+conditions, and it knew the mechanics (leveling grants the practice session; a Thief
+trains at the guild). Both core hypotheses confirmed: **offload extends to models**
+(strong planner, cheap executor) and **milestones map to existing loops**.
+
+Next: the executor wrapper (run one milestone via Haiku, report done/blocked) and the
+orchestrator (sequence + replan + persist). Note the *grind to level 5* milestone needs
+~+4457 xp (~20+ kills) and is respawn-paced across many runs — so the plumbing will be
+validated on a short goal first, with the full level-5 grind as the real (long) run.

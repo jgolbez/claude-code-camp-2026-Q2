@@ -10,6 +10,8 @@ module Boukensha
       "claude-opus-4-8"   => { context_window: 200_000 },
       "claude-sonnet-4-6" => { context_window: 200_000 },
       "claude-haiku-4-5"  => { context_window: 200_000 },
+      "claude-sonnet-5"   => { context_window: 200_000 },
+      "claude-opus-5"     => { context_window: 200_000 },
     }.freeze
 
     DEFAULT_CONTEXT_WINDOW = 32_000
