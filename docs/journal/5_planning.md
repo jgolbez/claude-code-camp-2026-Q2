@@ -103,3 +103,35 @@ Next: the executor wrapper (run one milestone via Haiku, report done/blocked) an
 orchestrator (sequence + replan + persist). Note the *grind to level 5* milestone needs
 ~+4457 xp (~20+ kills) and is respawn-paced across many runs — so the plumbing will be
 validated on a short goal first, with the full level-5 grind as the real (long) run.
+
+### Slices 3+4 — orchestrator + persistence validated (2026-07-29)
+Built the three-tier loop: **planner** (Sonnet-5) → coarse machine-checkable milestones
+(`done_check` = `xp_at_least` / `at_place` / `skill_trained` …); **`plan.json`** persists
+goal + milestones-with-status + current + a progress log + a state baseline; **executor**
+runs one milestone via Haiku **in its own subprocess** (own MUD session, no collision with
+the orchestrator's `read_state`); the **orchestrator** picks the active milestone, runs the
+executor with the goal + milestone + progress, **deterministically checks the `done_check`
+against live state**, and advances / re-runs / escalates-on-block, persisting each step.
+(Refined the planner first: milestones must be *checkpoints*, not tool-calls — it had
+over-decomposed into a trivial "find a mob" step and a "rest" step with a bogus xp check.)
+
+**The mechanism worked end-to-end** on the short goal (*grind to 5700 xp → guild → train*):
+milestone 1 executed, the orchestrator saw xp 5543→5973 cross the `xp_at_least 5700` check
+and **advanced on its own**; milestone 2 was checked, not met, **re-run**, and after the cap
+**escalated to `blocked`** — all persisted. The handoff + "judge completion against the
+goal, not the loop" + persistence are proven.
+
+**Two real findings the run surfaced (fix before the long level-5 run):**
+1. **Prioritization raised combat risk.** With `hunt` now preferring *stronger* prey, the
+   executor engaged a harder monster (+430 xp in one run) that hit Perry from full to **0 HP
+   past the wimpy floor** (a big hit skips the threshold). More xp = more danger — the safety
+   layer needs rebalancing against the prioritization (heal to *full* before a tough fight;
+   hold `:risky` to a larger HP margin, or drop it from auto-hunt).
+2. **No recovery from being stunned.** At 0 HP the executor kept trying to `move`/`teleport`
+   (fails while stunned) instead of *waiting out the stun then healing*. This is the kind of
+   block that should **escalate to the planner** to insert a recovery step (currently
+   escalation only stops).
+
+Next: wire block-escalation → planner replan; add stun/hurt recovery; rebalance grind
+safety vs. prioritization; then integrate the orchestrator into the lib and run the full
+level-5 goal.
