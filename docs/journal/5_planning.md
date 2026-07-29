@@ -1,8 +1,11 @@
 # Planning — decompose a goal, plan with a strong model, execute with Haiku
 
-> **Status:** pre-registration (design before build). The third and last table-stakes
-> ability (**navigation → combat → planning**); it stands on the tools built in
-> [3_combat](./3_combat.md) / [4_seek](./4_seek.md).
+> **Status:** in progress, **paused at a validated checkpoint.** The third and last
+> table-stakes ability (**navigation → combat → planning**); it stands on the tools built
+> in [3_combat](./3_combat.md) / [4_seek](./4_seek.md). Slices 1–4 are done and validated
+> (planner + executor + orchestrator + persistence); one architecture bug is isolated and
+> the remaining work is scoped — see **Where we paused** at the bottom. The design was
+> pre-registered first (below); observations follow.
 
 ## Where this picks up
 
@@ -144,3 +147,33 @@ Next (fixes before the long level-5 run):
 - **Stun/hurt recovery** in-loop (the watcher pattern), and **escalate blocks to the planner**
   for a replan (currently escalation only stops).
 - Then integrate the orchestrator into the lib and run the full level-5 goal.
+
+## Where we paused (2026-07-29)
+
+**Goal:** give the agent **planning** — take a high-level goal, decompose it into
+actionable milestones that map to milestones + tools, execute them, and replan when
+blocked — on a **two-tier model split**: **`claude-sonnet-5` plans** (sparse, high-value
+cognition), **Haiku executes** (the tight tool loop). Acceptance test: **become a level-5
+Thief with backstab trained**, self-directed.
+
+**Done & validated (slices 1–4):**
+- The harness runs two models with no new plumbing (`Boukensha.run(model:, mud: false)` =
+  a tool-less planner call). Registered the Claude 5 model IDs.
+- Sonnet-5 decomposes a fuzzy goal into a clean, correctly-ordered, **machine-checkable**
+  milestone plan (once told milestones are *checkpoints*, not tool-calls).
+- The **orchestrator** works end-to-end: `plan.json` persists goal + milestones + progress
+  + baseline across runs; the executor runs one milestone per subprocess; the orchestrator
+  judges completion by checking each milestone's `done_check` against **live game state**,
+  and advances / re-runs / escalates. Proven on a short goal.
+
+**Open (scoped for the next sitting):**
+1. **Root bug — link-dead between runs:** the subprocess model leaves Perry's idle body in
+   the world between runs; an aggressive mob stunned him to 0 HP. Fix with a clean `quit`
+   per run (leaning here), a persistent connection, or safe-park.
+2. **In-loop recovery** (the validated wait-out-stun → heal → safe-park pattern) and
+   **block → planner replan** (escalation currently just stops).
+3. **Lib integration** of the orchestrator (it's a scratchpad module today), then the full
+   level-5 run — a long, respawn-paced, multi-run grind.
+
+**Artifacts:** design in this file; the working orchestrator + planner prompt in the
+session scratchpad (to be moved into the lib on resume).
