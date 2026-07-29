@@ -121,17 +121,26 @@ and **advanced on its own**; milestone 2 was checked, not met, **re-run**, and a
 **escalated to `blocked`** — all persisted. The handoff + "judge completion against the
 goal, not the loop" + persistence are proven.
 
-**Two real findings the run surfaced (fix before the long level-5 run):**
-1. **Prioritization raised combat risk.** With `hunt` now preferring *stronger* prey, the
-   executor engaged a harder monster (+430 xp in one run) that hit Perry from full to **0 HP
-   past the wimpy floor** (a big hit skips the threshold). More xp = more danger — the safety
-   layer needs rebalancing against the prioritization (heal to *full* before a tough fight;
-   hold `:risky` to a larger HP margin, or drop it from auto-hunt).
-2. **No recovery from being stunned.** At 0 HP the executor kept trying to `move`/`teleport`
-   (fails while stunned) instead of *waiting out the stun then healing*. This is the kind of
-   block that should **escalate to the planner** to insert a recovery step (currently
-   escalation only stops).
+**Real finding — an ARCHITECTURE bug, not a combat one (corrected after checking the
+logs; the first read was wrong):** the grind was clean — `hunt` picked a proper monster
+(`'newbie'`, Fairly easy, +430 xp), `fight` backstabbed it, and Perry ended at **43/44 HP,
+full**. He hit 0 HP with **no combat in any session log**. Cause: the orchestrator's
+**subprocess-per-milestone model leaves Perry LINK-DEAD between runs** — his idle body sat
+in the aggressive-mob newbie zone and got beaten to 0 HP in the gap between the executor
+subprocess ending and the next connection. Same class as [[dont-blind-drive-perry]] ("never
+disconnect Perry in an unsafe room"), re-introduced by the orchestration. *(Lesson: don't
+assume a cause — read the logs. The prioritization did NOT raise risk; it worked and left
+Perry healthy.)*
 
-Next: wire block-escalation → planner replan; add stun/hurt recovery; rebalance grind
-safety vs. prioritization; then integrate the orchestrator into the lib and run the full
-level-5 goal.
+**Secondary finding (and its fix, validated):** nothing recovered from the resulting stun
+in-run. A recovery watcher — **wait out the stun → heal → teleport to safety** — brought
+Perry back cleanly (0 → 13 HP as the stun lifted → 44/44 at the Temple). That's the
+recovery pattern the executor/orchestrator should own.
+
+Next (fixes before the long level-5 run):
+- **Don't leave Perry link-dead in an unsafe room between runs** — the root bug. Options: one
+  persistent connection across the orchestration, or safe-park (teleport to Temple) at the
+  end of each executor run / between milestones.
+- **Stun/hurt recovery** in-loop (the watcher pattern), and **escalate blocks to the planner**
+  for a replan (currently escalation only stops).
+- Then integrate the orchestrator into the lib and run the full level-5 goal.
