@@ -138,3 +138,23 @@ of your zone / into an unprovisioned no-quit zone.*
 finite; the target outruns you). The answer is **camp / intercept, not chase** — sit at its
 home room (*A Corner Room*) or a chokepoint on its circuit and let it come to you (scan each
 tick; when it's adjacent, step in and `consider`/`fight`). That's the next thing to try.
+
+### Slice 5 — safe-park-before-quit + a no-chase guard (2026-08-01)
+Fixed the safety gap the chase exposed (Perry left quit in the sewer), in two layers:
+- **Harness (deterministic): safe-park before quit.** `quit_cleanly` (so *every* quit path —
+  the tool, `Boukensha.run` teardown, `read_state`) now reads the zone via `where` and, unless
+  it's a known-safe zone (Newbie Zone, or Midgaard town but **not** a sewer/passage even if the
+  name contains "midgaard"), it `teleport MIDGAARD`s first. Failure mode is conservative: an
+  unknown/unparseable zone parks to the Temple, never stays put. Classification **unit-tested**
+  across the likely names incl. the "Sewers of Midgaard" trap — all pass. Components verified
+  separately (`where` parse → "Northern Midgaard"; teleport-from-sewer works).
+- **Agent (prompt): don't chase out of your zone.** `system.md` now tells Perry that if a
+  target leaves the zone (`locate` flips to "not around"), it crossed a boundary — wait for it
+  to roam back or hunt else, **never chase into the sewer**. Defense in depth with the harness.
+
+**Caveat (honest):** the full *live* sewer end-to-end test is **pending** — the sewer is a
+**disconnected component** in Perry's map (`travel_to` reports "no mapped path connects it"),
+so I couldn't route him there to trigger the park in situ. The fix is robust by construction
++ unit-tested; confirm live once Perry has a mapped route into the sewer. *(Aside: that
+map disconnection is its own small finding — the newbie/Midgaard→sewer connecting edge never
+got recorded, so the sewer subgraph floats free.)*

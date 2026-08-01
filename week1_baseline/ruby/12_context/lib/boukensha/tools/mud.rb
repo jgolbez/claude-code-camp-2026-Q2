@@ -93,6 +93,17 @@ module Boukensha
           session.read_until_prompt
         end
 
+        # Is it safe to leave Perry SAVED IN PLACE on quit here? Yes in the Newbie Zone
+        # (grind — we want login to restore his spot) and in Midgaard town. Everywhere
+        # else — the sewer and other maze/aggressive zones — quitting in place is
+        # dangerous (login drops you back inside, among aggressive mobs), so we SAFE-PARK
+        # to the Temple first. We EXCLUDE sewer/passage even when the zone name contains
+        # "midgaard" (a "Sewers of Midgaard" must NOT count as safe) — the failure mode is
+        # deliberately conservative: an unknown zone parks to the Temple, never stays put.
+        safe_to_quit_here = lambda do |zone|
+          zone =~ /newbie zone/i || (zone =~ /midgaard/i && zone !~ /sewer|passage|cesspit/i)
+        end
+
         # Leave the game GRACEFULLY. The in-game `quit` command saves the character
         # and extracts it from the world, so — unlike a bare socket close, which
         # leaves the body LINK-DEAD in the room where aggressive mobs can kill it —
@@ -104,6 +115,16 @@ module Boukensha
         quit_cleanly = lambda do
           out = ""
           begin
+            # Safe-park before quit: if we're not in a known-safe zone, recall to the
+            # Temple first so quit never saves us inside a dangerous zone (e.g. the
+            # sewer). `where` reports "Players in <Zone>." Best-effort — a lookup or
+            # recall hiccup must never block the quit itself.
+            begin
+              zone = MudText.strip_ansi(send_cmd.call("where"))[/Players in ([^\n.]+)/i, 1].to_s.strip
+              send_cmd.call("teleport MIDGAARD") unless safe_to_quit_here.call(zone)
+            rescue StandardError
+              # ignore — proceed to quit regardless
+            end
             session.drain
             session.send_command("quit")
             sleep 0.4

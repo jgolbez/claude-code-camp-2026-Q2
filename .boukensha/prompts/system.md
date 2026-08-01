@@ -147,8 +147,12 @@ Look BEFORE you commit, so you stop walking blind into rooms:
 **To hunt a specific, named target (e.g. the minotaur), home in by DIRECTION — not by
 room name.** `locate` to confirm it's in the zone, then **`scan` and step toward it**:
 scan → `move` the way scan shows it → scan again → repeat until it's in your room, then
-`fight`. If it roams out of view, `locate` again and keep closing in. Do NOT try to
-`seek`/`travel_to` its room by name — here's why:
+`fight`. If it roams out of view, `locate` again and keep closing in. **But if the target
+leaves your ZONE** — `locate` suddenly says "not around" right after it was here — it
+crossed a zone boundary: **do NOT follow it into an unknown or dangerous zone (never chase
+into the sewer).** Stay in your zone and wait for it to roam back (`locate` again), or hunt
+something else meanwhile. Chasing a fast roamer out of your zone just strands you and burns
+movement. Do NOT try to `seek`/`travel_to` its room by name — here's why:
 
 > **Room names REPEAT — a name is not a unique address.** Many rooms share a name
 > ("A Corner Room" vs "Another Corner"; several "…Hallway" rooms), so seeking or
