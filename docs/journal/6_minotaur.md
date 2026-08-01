@@ -179,3 +179,29 @@ don't chase into the sewer). Outcome — closer, but still no verdict:
    call `fight`: the tool auto-`consider`s (refuses if too dangerous — that IS the verdict) and
    wimpy-protects. Most likely to actually resolve, but carries real boss-fight risk.
 3. **Map its circuit first**, then fast-travel intercept by #id.
+
+### Slice 7 — map+intercept attempt: confirms the real difficulty (2026-08-01)
+Ran a controlled scan-homing intercept (camp in the Dirty Hallway cluster, home on the
+minotaur's scan direction, `consider` when it lands in-room). It didn't get a verdict, but it
+nailed down *why* this is hard:
+- **The sewer zone is "Sewer, First Level"** — and the minotaur roams there. My blind
+  `explore` fallback followed its trail straight into the sewer on step 1; the **safe-zone
+  guard caught it and recalled** (good — validates the classifier on the real sewer name).
+- **The minotaur is a true cross-zone roamer** (newbie zone ⇄ Sewer, First Level). While it's
+  in the sewer it's both unreachable (don't chase in) AND unlocatable (`locate` is
+  zone-scoped). The catchable window is only when it's on the newbie side *and* in scan range.
+- Two script bugs made this pass worse than it needed to be: the `explore` fallback drifted
+  toward the sewer instead of staying on the newbie circuit, and the post-recall reposition
+  (`travel_to "The Dirty Hallway"`) failed, stranding Perry in Midgaard (zone-blind) for the
+  rest of the run. Perry ended safe at the Temple, 44/44.
+
+**Honest assessment after 3 attempts (2 agent, 1 script):** the tools all work and the agent
+uses them well; the blocker is the minotaur's *behaviour* — a fast, cross-zone roamer whose
+newbie-side circuit is mostly unmapped. A peaceful `consider` needs Perry parked on the
+newbie-side circuit and lucky enough to catch it in scan range before it dips back into the
+sewer. Tractable, but fiddly. Realistic next options: (a) a disciplined **newbie-zone-only**
+mapping pass (never explore toward the sewer) to give the circuit rooms #ids, then a tight
+`locate → travel_to #id → scan → consider` intercept; (b) accept **fight-when-adjacent** (the
+fight tool's consider-gate gives the verdict and wimpy/teleporter guard the downside); or
+(c) reconsider whether L4 is the right time, vs. levelling first. **Also validated for free:**
+the safe-zone guard correctly fires on the real "Sewer, First Level" zone.
