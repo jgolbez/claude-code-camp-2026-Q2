@@ -12,6 +12,7 @@
 | **Navigation** (make movement reliable) | [2_capable.md](./2_capable.md) · [detail](./2_capable_detail.md) | Persistent world-model + pathfinding; the week-1 task (find the Thieves' guild) solved |
 | **Combat & leveling** | [3_combat.md](./3_combat.md) · [detail](./3_combat_detail.md) | Perry reached **level 4** and **trained a skill** — acceptance test complete |
 | **Completing the toolkit** (seek · survival · capstone · prioritization) | [4_seek.md](./4_seek.md) | `seek` place-discovery, heal + safe-sleep, autonomous blank-map validation, prey prioritization |
+| **Planning** (decompose a goal; strong model plans, Haiku executes) | [5_planning.md](./5_planning.md) | *In progress, paused at a validated checkpoint* — Sonnet-5 planner + Haiku executor + persistent orchestrator proven end-to-end; one architecture bug isolated |
 | **Reference** (matrix · tools · safety · results) | [movement_combat_toolkit.md](./movement_combat_toolkit.md) | The toolkit as a single page (also a visual [Artifact](https://claude.ai/code/artifact/f6b4ad90-7ad6-46e4-9a80-f19a29e06167)) |
 
 ## Technical Goal
@@ -84,8 +85,13 @@ combat, survival, and discovery). The persistent surprise is that **the limiter 
 almost always navigation** — even the combat arc kept reaching back into it — which is
 why the toolkit's final shape (`move · travel_to · explore · hunt · fight · seek` over a
 survival layer of wimpy · provision · heal · safe-sleep) is as much a navigation result
-as a combat one. **Navigation → combat is done and proven; the third ability, planning,
-is the next thread.** Parked follow-ups (in the detail entries): the parse_room
+as a combat one. **Navigation → combat is done and proven; the third ability, planning
+([5_planning](./5_planning.md)), is now underway and paused at a validated checkpoint** —
+the offload principle carried up to the *model* tier (Sonnet-5 plans sparsely, Haiku
+executes the loop): a persistent orchestrator decomposes a goal into machine-checkable
+milestones, runs each, judges completion against live game state, and advances/replans —
+proven end-to-end on a short goal, with one architecture bug (link-dead between runs)
+isolated for the next sitting. Parked follow-ups (in the detail entries): the parse_room
 parens/fingerprint migration is superseded by door-stable identity; a bounded nearby
 explore so a single grind spot isn't respawn-bound; richer directional biasing for `seek`.
 

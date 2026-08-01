@@ -11,3 +11,6 @@
 
 # Boukensha runtime world-model memory (rebuilt as the agent explores, not source)
 .boukensha/world.json
+
+# Boukensha runtime plan state (written by the orchestrator per goal, not source)
+.boukensha/plan.json
