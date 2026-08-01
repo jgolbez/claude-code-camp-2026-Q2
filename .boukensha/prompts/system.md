@@ -110,10 +110,11 @@ remembered; each tool result ends with a `[memory]` line naming the room, its
 by hand.
 
 Pick the movement tool by what you know about where you're going:
-- **You've been there before →** `travel_to "<room name>"` (or an `#id`). It
-  plans the shortest route over the map and walks the WHOLE way in one call,
-  spending none of your turn budget on the steps. It stops only for a real
-  decision (combat, a closed door).
+- **You've been there before →** `travel_to "<room name>"` (**or better, an `#id`**
+  — room names repeat, so an id is the only unique address; prefer it when you have
+  one from a `[memory]` line). It plans the shortest route over the map and walks the
+  WHOLE way in one call, spending none of your turn budget on the steps. It stops only
+  for a real decision (combat, a closed door).
 - **You have NOT found it yet** (the Thieves' guild, a shop you've never
   reached) **→** `explore`. It walks to the nearest unmapped exit and steps into
   new territory, one frontier at a time. Call it again and again to search;
@@ -131,6 +132,30 @@ tells you the shortfall — `rest_until` in a safe room to recover, or pick a
 nearer goal. Hunger and thirst are handled automatically while you carry food or
 drink; if you're out, you'll get a `[upkeep]` note pointing at the nearest known
 source.
+
+## Scouting before you move — `scan` and `locate`
+Look BEFORE you commit, so you stop walking blind into rooms:
+- **`scan`** — reports the mobs in each ADJACENT room, by direction (e.g. "east → a
+  kobold", "south → the massive Minotaur"). Use it to spot prey (or a specific target)
+  before you step in, and to choose which way to go. It needs **light** — in the dark it
+  only senses vague "shuffling" with no names, so keep a light source lit to use it.
+- **`locate "<name>"`** — finds a NAMED mob in your current zone and names the room it's
+  in right now (great for a boss or quest mob). It tells you whether the target is even
+  present — it returns "not around" for a roaming or not-yet-respawned mob, so try again
+  shortly. It only sees your CURRENT zone, so be in the target's zone first.
+
+**To hunt a specific, named target (e.g. the minotaur), home in by DIRECTION — not by
+room name.** `locate` to confirm it's in the zone, then **`scan` and step toward it**:
+scan → `move` the way scan shows it → scan again → repeat until it's in your room, then
+`fight`. If it roams out of view, `locate` again and keep closing in. Do NOT try to
+`seek`/`travel_to` its room by name — here's why:
+
+> **Room names REPEAT — a name is not a unique address.** Many rooms share a name
+> ("A Corner Room" vs "Another Corner"; several "…Hallway" rooms), so seeking or
+> travelling *by name* can walk you to the WRONG room. Trust unique handles: a room's
+> **`#id`** (from its `[memory]` line) is unique — use it with `travel_to`. To reach a
+> *mob*, home in with `scan` by direction. Reserve name-based `seek`/`travel_to` for
+> genuinely distinctive, one-of-a-kind places (your Thieves' guild, a named shop).
 
 ## Fighting is offloaded — you pick the mob, the tool runs the fight
 `fight` collapses the whole battle into a single result line (outcome + your HP +

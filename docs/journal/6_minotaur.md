@@ -94,3 +94,23 @@ re-locate → close in → `consider`, turn by turn, persistently) — and it no
 `locate`. So the next step is to hand Perry a bounded **assess-only** goal ("locate and
 `consider` the minotaur; do NOT fight") with the new tools and safeguards, and let the loop
 do the iterative hunt. The tools are proven; the hunt itself is what needs the agent.
+
+### Making Perry actually use the tools + the name-fuzziness problem (2026-08-01)
+Two gaps the user flagged, both addressed in `prompts/system.md`:
+- **The agent needs to be TOLD to use `scan`/`locate`.** Registering a tool only gives the
+  model its auto-description; the strategy prompt drives behaviour. Added a **"Scouting"**
+  section: `scan` (adjacent mobs by direction, needs light) and `locate "<name>"` (a named
+  mob's room, zone-scoped), plus the recipe for a named target: **home in by DIRECTION with
+  `scan`, don't seek the room by name.**
+- **Room-name fuzziness is real and dangerous.** Names repeat ("A Corner Room" vs the
+  already-known "Another Corner"; many "…Hallway" rooms), so `seek`/`travel_to` *by name* can
+  route to the WRONG room — exactly what sank the scripted approach. Prompt now: prefer a
+  room's unique **`#id`**, and reach a *mob* by scan-direction, reserving name routing for
+  distinctive one-of-a-kind places.
+
+**Code to-do this surfaces (deeper fix):** `travel_to`/`seek` currently resolve a name to a
+*single* room and can silently pick the wrong one. They should **detect ambiguity** — when a
+name matches multiple known rooms — and return "N rooms match '<name>': #id1, #id2 … — say
+which" instead of guessing. That turns the fuzziness from a silent mis-route into an explicit
+choice. Not required for the minotaur hunt (which should use scan-by-direction), but it
+hardens all name-based navigation.
