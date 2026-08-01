@@ -228,10 +228,19 @@ Room" (a scripted intercept had just watched it hold still for 26 cycles). Two o
   Temple, 44/44, teleporter intact).
 
 **Priority flip:** the safe-park bug matters more than the minotaur — it's the net that keeps
-Perry out of the sewer, and it's not holding. Diagnosing it needs **temporary instrumentation
-in `quit_cleanly`** (log the parsed zone + teleport decision) plus **one controlled run into
-the sewer** to capture what it computes at teardown. Until that's fixed, more sewer-adjacent
-minotaur runs just re-expose Perry. The minotaur itself increasingly looks like a
+Perry out of the sewer, and it's not holding.
+
+**Diagnosed + fixed (2026-08-01).** Instrumented `quit_cleanly` and reproduced the exact
+trigger (a room-changing command, then quit). The DEBUG was decisive: `send_cmd.call("where")`
+returned a **stale room description** — the *previous* command's output — not the `where`
+listing. Root cause: after a room-changing command (a teleport), `send_cmd`'s drain doesn't
+fully clear the server's async room-push, so the next read hands back the prior output. In the
+sewer, that stale text was a leftover `Players in Northern Midgaard` from one of the agent's 35
+teleports → parsed as a **safe** zone → safe-park skipped → Perry quit in the sewer. **Fix:**
+flush (`drain → sleep 0.2 → drain`) before the zone read so it's fresh; validated the read now
+returns the real zone. (The general lesson — `send_cmd` can desync right after a room-change —
+is worth remembering for other back-to-back tool sequences.) Until this, more sewer-adjacent
+minotaur runs just re-exposed Perry; now the net holds. The minotaur itself increasingly looks like a
 **level-up-first** target (its wide cross-zone roam is hard to hold at L4), or one needing a
 mapped route into its corridor cluster.
 
