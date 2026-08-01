@@ -267,5 +267,8 @@ zone, but the sewer's hard-rule is "never quit inside" (you'd re-enter in the ma
 Perry grinds the sewer, the orchestrator/executor teardown must **`teleport MIDGAARD` before
 quitting** whenever the current room is a no-quit zone (i.e. the general "safe-park then quit"
 combo, applied conditionally). Not needed until sewer-grinding starts — noted so it isn't
-forgotten. Also flagged: `system.md` still describes Perry as a **level-1** (~21 HP, only
-`sneak` known) — stale now that he's L4 with backstab; worth refreshing his identity block.
+forgotten. **(Done 2026-08-01)** Perry's identity block in `system.md` was rewritten off
+stale hard-coded stats (level-1, ~21 HP, specific gear) and onto what stays true: he's a
+**Thief**, his edge is **thief skills** (backstab/sneak/hide/steal/pick lock, improved by
+practice at the guild), and he should **read level/HP via `check score` and skills/sessions
+via `practice`** rather than assume them.
