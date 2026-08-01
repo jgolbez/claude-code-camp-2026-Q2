@@ -77,3 +77,20 @@ first sighting, which worked *from A Nexus*, inside the newbie zone.) Updated th
 
 **Still open:** the minotaur was absent on the last several checks (roaming / respawn timer),
 so the `consider` feasibility read is still pending — need to catch it while it's up.
+
+### Slice 3 — the boss roams too fast for a rigid script (2026-08-01)
+Three scripted assessment passes (all safe — wimpy 35 + teleporter armed, Perry never left
+full HP, always exited to the Temple) all failed to get a `consider` on the minotaur:
+- **It flickers in and out of the zone fast.** In one pass `locate` had it in *A Corner Room*
+  at step 0 and reported it *gone from the zone* one iteration later. It roams hard and/or
+  crosses a zone edge that `where` can't see past.
+- **Its room is unmapped and name-collides:** `seek "Corner"` matched an already-known
+  *"Another Corner"* and redirected to `travel_to` instead of discovering *"A Corner Room"*.
+- Perry never got the boss into `scan` range before it moved.
+
+**Conclusion — this is a job for the agent loop, not a script.** A rigid one-shot script
+can't chase a moving target; the adaptive Haiku executor can (locate → explore/scan →
+re-locate → close in → `consider`, turn by turn, persistently) — and it now HAS `scan` +
+`locate`. So the next step is to hand Perry a bounded **assess-only** goal ("locate and
+`consider` the minotaur; do NOT fight") with the new tools and safeguards, and let the loop
+do the iterative hunt. The tools are proven; the hunt itself is what needs the agent.
