@@ -208,4 +208,33 @@ the safe-zone guard correctly fires on the real "Sewer, First Level" zone.
 
 ---
 
+### Slice 8 — attempt 5, and a safety-net bug surfaces (2026-08-01)
+Gave the agent a sharp goal during a window when the minotaur sat **stationary** in "A Corner
+Room" (a scripted intercept had just watched it hold still for 26 cycles). Two outcomes:
+- **Still no `consider`.** The agent leaned almost entirely on `track` (161 calls, **no
+  `scan`**), which oscillates (east↔west) because the minotaur roams a *cluster* of corridor
+  rooms — it located it in yet another new room ("A Crossing Of Corridors"). 366 moves,
+  **35 `teleport MIDGAARD`s**, and it still never entered the minotaur's room. Attempt 5; the
+  target's roaming across many unmapped corridor rooms defeats every approach so far.
+- **A real safety-net bug:** the agent chased into the sewer again and **ended saved there**
+  — *even though `quit_cleanly` is supposed to safe-park first*. Verified the fix did NOT fire
+  (Perry read back in "Sewer, First Level" after the teardown quit AND after a subsequent
+  `read_state` quit). Ruled out the obvious causes: **classification is correct** (unit-tested;
+  re-verified "Sewer, First Level" → unsafe), **the teleporter is still in inventory**, and
+  **the agent never self-quit**. So the failure is in the *live* `quit_cleanly` path — likely
+  a stale-buffer / `where`-read issue at teardown — but it **couldn't be reproduced in a test
+  because the sewer isn't routable via `travel_to`** (disconnected in the map), so `quit_cleanly`
+  can't be triggered from there on demand. **Perry was secured manually** (teleported to the
+  Temple, 44/44, teleporter intact).
+
+**Priority flip:** the safe-park bug matters more than the minotaur — it's the net that keeps
+Perry out of the sewer, and it's not holding. Diagnosing it needs **temporary instrumentation
+in `quit_cleanly`** (log the parsed zone + teleport decision) plus **one controlled run into
+the sewer** to capture what it computes at teardown. Until that's fixed, more sewer-adjacent
+minotaur runs just re-expose Perry. The minotaur itself increasingly looks like a
+**level-up-first** target (its wide cross-zone roam is hard to hold at L4), or one needing a
+mapped route into its corridor cluster.
+
+---
+
 > **📖 Story thread** — *Prev:* [← 5. Planning](./5_planning.md) · [↑ Overview](./00_summary.md) · *Next:* — **the live edge of the story** (the capstone is in progress)
