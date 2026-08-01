@@ -219,3 +219,39 @@ subprocess (exit 0, reply intact, teardown clean) and `read_state` both leave Pe
 state** (xp, level, skills, items) — all of which survive a quit — rather than transient
 world state. Location happens to survive here too, but the planner prompt already steers
 toward xp/level/skill checks, which is the robust choice.
+
+### Validation run — the fix holds; a new bottleneck appears (2026-08-01)
+Re-ran the orchestrator end-to-end on a short goal (*gain ~500 xp → travel to the guild*)
+to prove the link-dead fix under real load. Sonnet-5 planned it cleanly (grind to
+`xp_at_least 6473`, then `at_place "Thieves' Guild"`), and:
+
+**What passed (the point of the run):**
+- **Perry survived the entire run** — 4 executor subprocesses + 5 state-reads, each a full
+  connect → fight → quit cycle (the exact motion that killed him last session). **Zero
+  deaths, no stun, no 0-HP; the logs show he never dropped below 44/44.** Link-dead is fixed.
+- Position **persisted across quits** (Temple → Dirty Hallway → Armory — he stayed in the
+  zone, not reset to a load room), and the orchestrator ran clean: plan → execute → re-check
+  → persist → escalate at the run cap.
+
+**What it exposed (a real new bottleneck, read from the logs — not assumed):** the grind
+**stalled 156 xp short** and hit the 4-run cap. Cause: **Perry has outgrown the newbie
+zone.** He's L4; the logs are full of *"all clear"* / *"too trivial"* / *"respawn"*, and two
+of the four runs landed **zero kills → zero xp**. The prey-prioritization **floor we built is
+now the binding constraint** — correctly refusing trivial mobs, but at L4 the *whole* newbie
+zone is trivial and quickly depleted, so Perry finds nothing worth killing and waits on
+respawns. (Ironic and on-theme: every downstream limiter keeps turning out to be
+navigation/prey-economy, [[mud-grind-locations]].)
+
+**Second, smaller finding — executor thrash:** when prey is scarce the executor calls `hunt`
+**140–270×** in a single run (hunt → "all clear" → `rest_until` → hunt …) instead of
+recognizing depletion and reporting back. Wasteful; it should give up after N empty hunts and
+report *"zone depleted, waiting on respawns"* so the orchestrator can wait or replan.
+
+**Not yet validated:** milestone 2 (`at_place` guild) never ran — M1 blocked first. The
+quit-preserves-`at_place` path is proven by the earlier probe but not yet through the loop.
+
+**Options (for when we pick grind economy up):** graduate Perry to a higher-level ground for
+L4→5 (the sewer is the noted step up — needs teleporter + light, [[mud-grind-locations]]);
+and/or let `hunt` relax the floor when a zone is *depleted* (take trivial prey rather than
+stall); and/or raise `MAX_RUNS_PER_MILESTONE` for genuine grind milestones. None needed to
+call the link-dead fix validated — that was the run's job, and it passed.
