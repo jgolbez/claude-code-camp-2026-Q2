@@ -1218,6 +1218,63 @@ module Boukensha
           end
         end
 
+        registry.tool "scan",
+          description: "Look into the ADJACENT rooms WITHOUT moving and report which mobs/players are " \
+                       "in each direction — your reconnaissance for hunting. See prey (or a specific " \
+                       "target) before you step into a room, then `move`/`hunt` toward what you want. " \
+                       "Needs LIGHT: in a dark room scan is blind and only senses vague 'shuffling' " \
+                       "with no names — carry a lit light source to use it.",
+          parameters: {} do
+          next guard.call if guard.call
+          body = MudText.strip_ansi(send_cmd.call("scan")).lines
+                        .map(&:strip)
+                        .reject { |l| l.empty? || l =~ /\d+H\s+\d+M\s+\d+V/ || l =~ /\A(scan|>)\z/i }
+                        .join(" ").strip
+          has_dir = body =~ /\b(north|south|east|west|up|down)\b/i
+          if !has_dir && body =~ /shuffl|hear|too dark|can'?t see|pitch/i
+            next "Scan is blind here — it's dark, so you only sense vague shuffling and can't make out " \
+                 "names or directions. Light a light source, then scan again."
+          end
+          next "Scan: nothing moving in the rooms around you." if body.empty? || !has_dir
+          # Per-direction sightings, e.g. "You see the newbie monster close by east."
+          seen = body.split(/(?<=[.!])\s+/).filter_map do |s|
+            next nil unless (d = s[/\b(north|south|east|west|up|down)\b/i])
+            mobs = s.sub(/\Ayou see\s+/i, "")
+                    .sub(/\s*(close by|to the|(?:a bit )?farther off(?: to the)?|far off(?: to the)?)\s+#{d}\b.*\z/i, "")
+                    .sub(/\s*\b#{d}\b[.!]*\z/i, "")
+                    .sub(/[.!]+\z/, "").strip
+            [d.downcase, mobs.empty? ? "(something)" : mobs]
+          end
+          seen.empty? ? "Scan: #{body}" :
+            "Scan — what's in the adjacent rooms:\n" + seen.map { |d, m| "  #{d.ljust(5)} → #{m}" }.join("\n")
+        end
+
+        registry.tool "locate",
+          description: "Find a NAMED mob or player anywhere in your current zone: reports the ROOM " \
+                       "they are in right now (via the game's `where`). Use this to hunt a specific " \
+                       "target — a named boss, a quest mob — instead of wandering: it tells you whether " \
+                       "the target is even in the zone, and exactly where, so you can `travel_to`/`seek` " \
+                       "it. Zone-scoped (won't see other zones). Returns 'not around' if the target " \
+                       "isn't present right now — a roaming or not-yet-respawned mob; try again shortly.",
+          parameters: {
+            target: { type: "string", description: "Name/keyword of the mob or player to find (e.g. 'minotaur')" }
+          } do |target:|
+          next guard.call if guard.call
+          rows = MudText.strip_ansi(send_cmd.call("where #{target}")).lines
+                        .map(&:strip)
+                        .reject { |l| l.empty? || l =~ /\d+H\s+\d+M\s+\d+V/ }
+          txt  = rows.join(" ")
+          if txt.strip.empty? || txt =~ /nobody around|no-?one|can'?t find|not around|couldn'?t find/i
+            next "'#{target}' isn't in your zone right now — not present (it may roam or be waiting to " \
+                 "respawn). Try `locate` again shortly, or hunt something else meanwhile."
+          end
+          # `where <name>` lists "<mob name>  - <Room Name>" rows.
+          hits = rows.select { |l| l.include?(" - ") }
+          hits.empty? ? "where #{target}: #{txt}" :
+            "Located '#{target}':\n" + hits.map { |h| "  #{h.squeeze(' ')}" }.join("\n") +
+            "\n→ travel_to / seek that room to reach it."
+        end
+
         # ── Combat ──────────────────────────────────────────────────────────
 
         registry.tool "fight",
