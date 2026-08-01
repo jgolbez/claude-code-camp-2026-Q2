@@ -93,6 +93,29 @@ module Boukensha
           session.read_until_prompt
         end
 
+        # Leave the game GRACEFULLY. The in-game `quit` command saves the character
+        # and extracts it from the world, so — unlike a bare socket close, which
+        # leaves the body LINK-DEAD in the room where aggressive mobs can kill it —
+        # no attackable body is left behind. We must NOT wait for a "> " prompt here:
+        # `quit` drops the connection, so read_until_prompt would block. Instead we
+        # send, briefly let the goodbye arrive, drain it, and close. Best-effort:
+        # if the character can't quit (e.g. mid-combat) the server rejects it and the
+        # socket close still happens, so this is never worse than mud_disconnect.
+        quit_cleanly = lambda do
+          out = ""
+          begin
+            session.drain
+            session.send_command("quit")
+            sleep 0.4
+            out = session.drain.to_s
+          rescue => e
+            out = "quit note: #{e.message}"
+          ensure
+            session.close rescue nil
+          end
+          out
+        end
+
         # Send a command that produces combat output and return a DISTILLED
         # result: round-by-round attack flavor is collapsed to a count, while
         # outcomes (death, xp, loot, level, "mortally wounded", flee) and the
@@ -860,11 +883,29 @@ module Boukensha
         end
 
         registry.tool "mud_disconnect",
-          description: "Close the connection to the MUD server gracefully.",
+          description: "Leave the MUD. Quits cleanly (saves the character and removes it " \
+                       "from the world so it can't be attacked while away), then closes the " \
+                       "connection — never leaves the character link-dead. Alias of mud_quit.",
           parameters: {} do
           if session.open?
-            session.close
-            "disconnected"
+            note = quit_cleanly.call
+            note.to_s.empty? ? "disconnected" : "disconnected\n#{note}"
+          else
+            "already disconnected"
+          end
+        end
+
+        registry.tool "mud_quit",
+          description: "Leave the game CLEANLY: send the in-game 'quit' command so the " \
+                       "character is saved and removed from the world (it cannot be " \
+                       "attacked while you are away), then close the socket. Prefer this " \
+                       "over mud_disconnect whenever you are done playing — a bare " \
+                       "disconnect leaves the body link-dead in the room, where aggressive " \
+                       "mobs can beat it to death.",
+          parameters: {} do
+          if session.open?
+            note = quit_cleanly.call
+            note.to_s.empty? ? "quit and disconnected" : "quit and disconnected\n#{note}"
           else
             "already disconnected"
           end

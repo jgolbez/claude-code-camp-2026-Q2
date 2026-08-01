@@ -106,6 +106,17 @@ module Boukensha
     ctx.add_message(:user, task)
     agent.run
   ensure
+    # Leave the MUD CLEANLY on the way out. Without this, ending the run just drops
+    # the socket, leaving the character LINK-DEAD in whatever room it stopped in —
+    # where aggressive mobs beat the idle body to death between runs (the root cause
+    # of the orchestrator's 0-HP incident). mud_quit saves + extracts the character,
+    # and login restores its position, so nothing is lost. Best-effort: never let a
+    # teardown hiccup mask the run's real result.
+    begin
+      registry.dispatch("mud_quit", {}) if resolved_mud && registry
+    rescue => e
+      warn "[boukensha] mud quit-on-exit failed: #{e.message}"
+    end
     logger&.close
   end
 

@@ -29,7 +29,11 @@ module Plan
     score = c(reg.dispatch("check", { "kind" => "score" }))
     prac  = Boukensha::Skills.parse_practice(reg.dispatch("practice", {}))
     loc   = c(reg.dispatch("look", {})).lines.first.to_s.strip
-    reg.dispatch("mud_disconnect", {})
+    # Quit CLEANLY, not just disconnect: a bare disconnect would leave Perry
+    # link-dead in whatever room this read touched. mud_quit saves + extracts him
+    # (login restores his position), so these frequent state reads never leave an
+    # attackable idle body behind.
+    reg.dispatch("mud_quit", {})
     {
       level:     score[/\(level\s+(\d+)\)/i, 1]&.to_i,
       xp:        score[/have\s+(\d+)\s+exp/i, 1]&.to_i,
