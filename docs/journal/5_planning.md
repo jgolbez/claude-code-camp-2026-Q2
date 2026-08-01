@@ -168,9 +168,24 @@ Thief with backstab trained**, self-directed.
 
 **Open (scoped for the next sitting):**
 1. ~~**Root bug — link-dead between runs.**~~ **FIXED (2026-08-01, below).**
-2. **In-loop recovery** (the validated wait-out-stun → heal → safe-park pattern) and
-   **block → planner replan** (escalation currently just stops).
+2. **In-loop stun recovery — DEFERRED (2026-08-01), fix-if-observed.** See the decision note
+   below. **Block → planner replan** (escalation currently just stops) — still open.
 3. The full level-5 run — a long, respawn-paced, multi-run grind.
+
+### Decision — defer stun recovery until it actually shows up (2026-08-01)
+The *hurt* half of recovery is already deterministic and covers the common case: `fight` sets
+a **wimpy floor (~⅓ max HP)** so Perry auto-flees before a lethal hit, and **`rest_until hp:`**
+sleeps him back up behind a full safety gate (won't sleep near a mob / under attack / in an
+over-level zone; eats/drinks so regen isn't blocked). The uncovered case is **stun** — while
+stunned Perry can't act, so wimpy can't flee *and* `rest_until` (which does wake→stand→look
+first) can't run; the only handler is the manual watcher (poll until the stun lifts → heal →
+safe-park), which isn't owned by a tool yet. **But the catastrophic stun in the incident was
+the link-dead mauling, now fixed** — the remaining in-combat stun is rarer (wimpy usually
+flees first) and non-catastrophic (Perry is connected and recovers as it wears off). So rather
+than build speculative machinery, **we run the level-5 acceptance test and only build the
+owned stun-recovery routine if a stun actually bites in practice.** If it does, the fix is
+known: a `recover` routine (wait-out-stun → `rest_until hp:` → safe-park) plus a deterministic
+"ensure healthy + safe between milestones" guard in the orchestrator.
 
 **Artifacts:** design in this file; the orchestrator + executor now live in the repo at
 `week1_baseline/ruby/12_context/planning/` (they had been only in the session scratchpad,
