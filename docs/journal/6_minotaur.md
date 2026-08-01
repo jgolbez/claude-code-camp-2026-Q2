@@ -158,3 +158,24 @@ so I couldn't route him there to trigger the park in situ. The fix is robust by 
 + unit-tested; confirm live once Perry has a mapped route into the sewer. *(Aside: that
 map disconnection is its own small finding — the newbie/Midgaard→sewer connecting edge never
 got recorded, so the sewer subgraph floats free.)*
+
+### Slice 6 — camp/intercept attempt: still no `consider` (2026-08-01)
+Second agent run, this time a **camp** goal (post at A Nexus, conserve movement, scan-and-wait,
+don't chase into the sewer). Outcome — closer, but still no verdict:
+- **The guard held:** Perry stayed in the **Newbie Zone** the whole run (ended at *The
+  Beginning Of The Passage* — the newbie-side end that leads toward the sewer, zone =
+  "Newbie Zone", scan clear; he did NOT cross into the sewer). Safe-parked to the Temple after.
+- **Camp-at-a-hub didn't intercept.** `locate` kept finding the minotaur in *A Corner In The
+  Hallway* / *Another Turn* — a cluster of newbie-zone corner/hallway rooms it circuits — but
+  **it never passes A Nexus**, so waiting there caught nothing. (Still 251 moves — the agent
+  drifted looking for a better spot rather than truly camping.)
+- **The `consider` verdict is STILL unknown** after two runs. Pinning a fast roamer in an
+  unmapped, name-colliding room cluster for a *peaceful* consider is genuinely hard.
+
+**Where this leaves the approach (options for next):**
+1. **Camp on its actual circuit** — post *in* one of the rooms it frequents (needs those rooms
+   mapped with #ids first, so re-locate → `travel_to #id` can beat its roam).
+2. **Fight-when-adjacent instead of peaceful consider** — when it's finally in Perry's room,
+   call `fight`: the tool auto-`consider`s (refuses if too dangerous — that IS the verdict) and
+   wimpy-protects. Most likely to actually resolve, but carries real boss-fight risk.
+3. **Map its circuit first**, then fast-travel intercept by #id.
