@@ -134,4 +134,5 @@ finding. **navigation → combat → planning**; two of three abilities are done
 
 ---
 
-> **📖 Reference doc** — a single-page toolkit companion to the story, not a chapter itself. [↑ Overview / start the journey](./00_summary.md)
+> **📖 Reference doc** — a single-page toolkit companion to the story, not a chapter itself.
+> For *how the agent decides which tool to use*, see [tools & reasoning](./tools_and_reasoning.md). [↑ Overview / start the journey](./00_summary.md)
