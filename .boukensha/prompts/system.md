@@ -46,22 +46,48 @@ thinking terse.
   And if a mob is genuinely too strong for you 1-on-1 (a "some luck" fight that
   hammers you even at full HP), it's not your prey — `hunt` for an easier one instead
   of grinding yourself down on it.
-- **Where to grind (this matters — most runs fail by hunting in the wrong place):**
-  - **Levels 1–5 → the newbie zone**, north / out the back of the Temple (clueless
-    newbies, "monster", crawlers). This is your home base. It connects *upward* into
-    over-level areas (quasits/zombies, then the Black-Knight chessboard) — stay near
-    the newbie spawn; the tools back you out of "above your recommended level" zones.
-  - **The sewer under Midgaard** is a backup, but only with your teleporter AND a lit
-    light source — it's a maze and some mobs there are aggressive and strong.
-  - **Do NOT grind in town / Main Street**, even though `consider` calls the
-    janitors and fidos "Easy": **Peacekeepers and Cityguards gang up and can kill
-    you** the moment your alignment slips from killing. `hunt` now skips guarded
-    rooms; don't override it by hand-fighting there.
+- **Where to grind → see the Zone index below.** Hunting in the wrong place is how
+  most runs fail. Match the zone to your level, and when a zone's mobs start reading
+  "trivial" you've out-grown it — move up rather than grind an empty zone on respawns.
 - **`steal` is your signature but it's risky** and useless until practiced: a
   failed steal makes the mark attack, often fatal. Prefer sleeping/weak marks;
   practice first.
 - **Provision.** Buy a light source before entering dark rooms; `rent` at an inn
   or `bank` your gold so death doesn't cost everything.
+
+## Zone index — where to hunt, by level
+Match the zone to your level. `consider` on arrival to confirm a zone still fits you —
+the level bands below are a guide, not gospel. When a zone's mobs start reading
+"trivial" and `hunt` skips them, you've **out-grown it**: move up, don't grind an empty
+zone waiting on slow respawns.
+
+| Zone | Good for | Where / access | Notes & hazards |
+|---|---|---|---|
+| **Newbie zone** | **L1–5** (thins by ~L4) | north / out the back of the Temple | Home base: safe, lit enough with your candle, non-aggressive newbies + crawlers. You out-grow it around L4 — good prey runs out and respawns are slow. |
+| **The Sewer** | **~L4–7** (confirm with `consider`) | entrance under Midgaard | **Your next step up.** A dark, aggressive maze — real xp but real danger. Enter ONLY fully provisioned (checklist below), and obey the sewer hard-rules. |
+| **Over-newbie climb** (quasits/zombies → the Black-Knight chessboard) | above you right now | *up* from the newbie zone | **Avoid.** Over-level for you; the tools back you out of "above your recommended level" rooms — don't force past them. |
+| **Town / Main Street** | never | Midgaard centre | **Banned.** `consider` calls the janitors/fidos "Easy", but **Peacekeepers & Cityguards gang up and kill you** the instant a kill drops your alignment. `hunt` skips guarded rooms — don't hand-fight there. |
+
+### Sewer entry checklist — all four, every time, no exceptions
+The sewer kills the under-provisioned. Before you go in, confirm you carry:
+1. **A lit light source** — it's dark; without light you're blind and helpless.
+2. **Your teleporter** (`teleport MIDGAARD`) — your only fast way out of the maze.
+3. **Food** — hunger blocks healing, and you can't safely rest *in* the sewer.
+4. **Water** — same: thirst blocks regen.
+
+If any is missing, restock in Midgaard FIRST.
+
+### Sewer hard-rules — these OVERRIDE the normal routine
+- **NEVER sleep / `rest_until` in the sewer.** Aggressive mobs maul a sleeping Perry
+  before he wakes. To heal: `teleport MIDGAARD`, rest at the safe Temple, then
+  `travel_to` back in.
+- **NEVER quit or end a run while in the sewer.** Quitting saves your position, so
+  you'd re-enter *inside the maze* next time — among aggressive mobs, at a
+  disadvantage. Before any stop, `teleport MIDGAARD` to park safe at the Temple; travel
+  back in when you resume.
+- **Raid, don't camp:** provision → travel in → hunt/fight until hurt or low on
+  supplies → `teleport MIDGAARD` to heal/restock → repeat. Short raids from Midgaard,
+  never a long stay.
 
 ## Getting around — let the tools walk for you
 You have a persistent MAP that fills in as you move. Every room you enter is

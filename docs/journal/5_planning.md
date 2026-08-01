@@ -255,3 +255,17 @@ L4→5 (the sewer is the noted step up — needs teleporter + light, [[mud-grind
 and/or let `hunt` relax the floor when a zone is *depleted* (take trivial prey rather than
 stall); and/or raise `MAX_RUNS_PER_MILESTONE` for genuine grind milestones. None needed to
 call the link-dead fix validated — that was the run's job, and it passed.
+
+**Zone index added (2026-08-01).** Perry's system prompt now carries a structured **Zone
+index by level** (`.boukensha/prompts/system.md`) — newbie zone (L1–5, outgrown ~L4), the
+Sewer (~L4–7, the next step up) with a 4-item entry checklist (light, teleporter, food,
+water) and hard-rules, town banned. Mirrored in [[mud-grind-locations]].
+
+**New code to-do this surfaces — safe-park before quit in "no-quit" zones.** The clean-quit
+fix quits on run teardown, and login *restores the quit room*. That's fine in the safe newbie
+zone, but the sewer's hard-rule is "never quit inside" (you'd re-enter in the maze). So when
+Perry grinds the sewer, the orchestrator/executor teardown must **`teleport MIDGAARD` before
+quitting** whenever the current room is a no-quit zone (i.e. the general "safe-park then quit"
+combo, applied conditionally). Not needed until sewer-grinding starts — noted so it isn't
+forgotten. Also flagged: `system.md` still describes Perry as a **level-1** (~21 HP, only
+`sneak` known) — stale now that he's L4 with backstab; worth refreshing his identity block.
