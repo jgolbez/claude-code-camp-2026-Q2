@@ -177,3 +177,7 @@ Decisions ledger (the short version)
 Where we stopped
 
 Everything is built, tested, and committed to disk (memory updated too). Deferred to next week of the bootcamp: the decision frameworks — the decision event schema (options + prediction) on boukensha's Logger, plus a review pass for outcome.match. You're right that that's exactly the "decision frameworks" theme, and the trace plumbing is already in place to receive it.
+
+---
+
+> **📖 Story thread** — *Start of the journey* · [↑ Overview](./00_summary.md) · *Next:* [1. The baseline harness →](./1_baseline.md)

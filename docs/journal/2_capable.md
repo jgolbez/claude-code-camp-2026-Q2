@@ -101,3 +101,7 @@ Leveling / combat (the next table-stakes ability) so Perry can actually train. S
 follow-ups are logged in the detail file: maze-area navigation (it got lost in the
 sewer), a few missing structured tools (it fell back to raw commands), and caching the
 message history to tighten the token bound.
+
+---
+
+> **📖 Story thread** — *Prev:* [← 1. The baseline harness](./1_baseline.md) · [↑ Overview](./00_summary.md) · *Next:* [3. Combat & leveling →](./3_combat.md)

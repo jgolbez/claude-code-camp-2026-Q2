@@ -104,3 +104,7 @@ the game. So I expected the loop to run but the *gameplay* to fall short.
 Domain knowledge like thief skills is worthless until the agent can reliably
 navigate and remember — and I can't build that foundation without real
 visibility into what the loop actually does when I issue a direction.
+
+---
+
+> **📖 Story thread** — *Prev:* [← 0. Surveying frameworks](./0_preweek.md) · [↑ Overview](./00_summary.md) · *Next:* [2. Navigation →](./2_capable.md)

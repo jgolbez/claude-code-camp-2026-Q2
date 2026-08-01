@@ -272,3 +272,7 @@ stale hard-coded stats (level-1, ~21 HP, specific gear) and onto what stays true
 **Thief**, his edge is **thief skills** (backstab/sneak/hide/steal/pick lock, improved by
 practice at the guild), and he should **read level/HP via `check score` and skills/sessions
 via `practice`** rather than assume them.
+
+---
+
+> **📖 Story thread** — *Prev:* [← 4. Completing the toolkit](./4_seek.md) · [↑ Overview](./00_summary.md) · *Next:* [6. The capstone — hunt the minotaur →](./6_minotaur.md)

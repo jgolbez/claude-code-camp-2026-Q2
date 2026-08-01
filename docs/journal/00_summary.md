@@ -1,31 +1,39 @@
 # boukensha — a from-scratch LLM MUD agent: technical summary
 
-> **Read this first.** A high-level summary of the project in the standard journal
-> format; each section links to the detailed entry for deeper reading. The subject:
-> **boukensha**, a from-scratch Ruby harness in which an LLM plays CircleMUD/tbaMUD as
-> **Perry**, a level-1 Thief.
+> **Read this first.** The high-level story of the project in the standard journal format,
+> with each chapter linking to its detailed entry. The subject: **boukensha**, a
+> from-scratch Ruby harness in which an LLM plays CircleMUD/tbaMUD as **Perry**, a Thief —
+> built toward one concrete goal the bootcamp set: *can an LLM agent play well enough to
+> hunt down and kill the minotaur in the newbie zone?*
 
-## At a glance — where to dig in
+## The journey, in order
 
-| Arc | Detailed entry | Outcome |
-|---|---|---|
-| **Navigation** (make movement reliable) | [2_capable.md](./2_capable.md) · [detail](./2_capable_detail.md) | Persistent world-model + pathfinding; the week-1 task (find the Thieves' guild) solved |
-| **Combat & leveling** | [3_combat.md](./3_combat.md) · [detail](./3_combat_detail.md) | Perry reached **level 4** and **trained a skill** — acceptance test complete |
-| **Completing the toolkit** (seek · survival · capstone · prioritization) | [4_seek.md](./4_seek.md) | `seek` place-discovery, heal + safe-sleep, autonomous blank-map validation, prey prioritization |
-| **Planning** (decompose a goal; strong model plans, Haiku executes) | [5_planning.md](./5_planning.md) | *In progress, paused at a validated checkpoint* — Sonnet-5 planner + Haiku executor + persistent orchestrator proven end-to-end; one architecture bug isolated |
-| **Reference** (matrix · tools · safety · results) | [movement_combat_toolkit.md](./movement_combat_toolkit.md) | The toolkit as a single page (also a visual [Artifact](https://claude.ai/code/artifact/f6b4ad90-7ad6-46e4-9a80-f19a29e06167)) |
+Each row is a chapter of the story; read top-to-bottom for the whole arc, or jump into any
+detailed entry. Everything builds on the previous chapter — the thread is continuous.
+
+| # | Chapter | Entry | Where it got to |
+|---|---|---|---|
+| 0 | **Pre-week — surveying agent frameworks** | [0_preweek.md](./0_preweek.md) | Compared framework styles before committing to a from-scratch harness |
+| 1 | **Week 1 — the baseline harness** | [1_baseline.md](./1_baseline.md) | A working agentic loop (LLM + tools + live MUD) — it *played*, but circled and burned tokens |
+| 2 | **Navigation — make movement reliable** | [2_capable.md](./2_capable.md) · [detail](./2_capable_detail.md) | Persistent world-model + pathfinding; **memory killed the circling**; the week-1 task (find the guild) solved |
+| 3 | **Combat & leveling** | [3_combat.md](./3_combat.md) · [detail](./3_combat_detail.md) | `hunt` + `fight` offloaded; Perry reached **level 4** and **trained backstab** — acceptance test complete |
+| 4 | **Completing the toolkit** (seek · survival · prioritization) | [4_seek.md](./4_seek.md) | `seek` place-discovery, heal + safe-sleep, prey prioritization; validated on a **wiped map**, 0 deaths |
+| 5 | **Planning — a goal, decomposed** | [5_planning.md](./5_planning.md) | Two-model orchestration (**Sonnet-5 plans, Haiku executes**); validated, one real bug found **and fixed** |
+| 6 | **The capstone — hunt the minotaur** | [6_minotaur.md](./6_minotaur.md) | The actual bootcamp goal; added `scan`/`locate`; the minotaur is a fast **cross-zone roamer** — *in progress* |
+| ★ | **Reference — the toolkit on one page** | [movement_combat_toolkit.md](./movement_combat_toolkit.md) | Every tool + the safety stack (also a visual [Artifact](https://claude.ai/code/artifact/f6b4ad90-7ad6-46e4-9a80-f19a29e06167)) |
 
 ## Technical Goal
 
-Build an LLM agent that plays a MUD *reliably* as a fragile character — reaching a
-destination without circling, fighting without dying, and gaining a level. Structured as
-three table-stakes abilities in dependency order — **navigation → combat → planning** —
-all standing on one shared, persistent **world-model**. The deeper goal is to prove a
-**design pattern**: an LLM is too slow and token-hungry to drive a MUD move by move, so
-**every mechanical action is offloaded to a deterministic tool** — the model chooses
-*what* and *whether*, the tools do the walking, fighting, and finding for zero model
-tokens. *(Ruby track; reused the `log_viz` viewer; skipped the instructor's heavier
-detours — a trained room-parser, OpenTelemetry.)*
+The bootcamp's concrete goal: **an LLM agent that plays a MUD well enough to hunt down and
+kill the minotaur** in the newbie zone — as a fragile Thief, reaching places without
+circling, fighting without dying, and leveling to earn its skills. We pursued it by building
+three table-stakes abilities in dependency order — **navigation → combat → planning** — all
+on one shared, persistent **world-model**, then turning that toolkit on the capstone target.
+The deeper goal throughout: prove a **design pattern** — an LLM is too slow and token-hungry
+to drive a MUD move by move, so **every mechanical action is offloaded to a deterministic
+tool**; the model chooses *what* and *whether*, the tools do the walking, fighting, and
+finding for zero model tokens. *(Ruby track; reused the `log_viz` viewer; skipped the
+instructor's heavier detours — a trained room-parser, OpenTelemetry.)*
 
 ## Technical Uncertainty
 
@@ -33,19 +41,23 @@ detours — a trained room-parser, OpenTelemetry.)*
   week-1 baseline did)?
 - **Room identity** — can rooms get a stable id from content when some are near-identical?
 - **Token economics** — is per-turn spend, not context-window pressure, the real limiter?
-- **Survival** — can a ~23-HP Thief be kept alive across many autonomous runs?
-- **Discovery** — can the agent *find* places and prey it hasn't mapped, affordably?
+- **Survival** — can a fragile ~23-HP Thief be kept alive across many autonomous runs?
+- **Discovery** — can the agent *find* places and prey — and a specific named boss — it
+  hasn't mapped, affordably?
+- **Planning** — can a stronger model decompose a fuzzy goal into steps a cheap model can
+  execute, and coordinate progress across the many runs a long goal needs?
 
 ## Technical Hypotheses
 
 - **Offload is the unlock.** Move the mechanics (pathfinding, considering, fighting,
-  searching) out of the model into deterministic tools; reliability and affordability
-  follow.
+  searching) out of the model into deterministic tools; reliability and affordability follow.
 - **Navigation is a *memory* problem, not a loop problem** — give it a persistent
   world-model and it stops circling.
-- **Combat is a *decision-offloading* problem, not a decision-making one** — a fight is
-  too fast/text-heavy to steer round by round.
-- The **same world-model** carries all three abilities without a redesign.
+- **Combat is a *decision-offloading* problem, not a decision-making one** — a fight is too
+  fast/text-heavy to steer round by round.
+- The **same world-model** carries every ability without a redesign.
+- **Offload extends to the *model* tier** — a strong planner called sparsely, with cheap
+  Haiku in the loop, plans well at bounded cost.
 
 ## Technical Observations
 
@@ -67,37 +79,49 @@ detours — a trained room-parser, OpenTelemetry.)*
   call (3.1s)** where hand-`explore` had failed for a whole run. A **survival layer** was
   added (heal to a target via sleep; refuse to sleep next to a mob), and **prey
   prioritization** (prefer the strongest safe mob, skip prey below an auto-scaling floor,
-  satisfice across spots — with the decision reported for observability).
-- **Validation** — the whole toolkit was tested end-to-end on a **wiped map**: Perry
-  discovered the newbie zone, fought, healed, and stayed safe **on his own**. Across
-  **nine live LLM runs, zero deaths.** The share of turns spent on high-level offload
-  tools climbed **~0% → 60%** from the first watch run to the last.
+  satisfice across spots — decision reported for observability). Tested end-to-end on a
+  **wiped map**: Perry discovered the newbie zone, fought, healed, and stayed safe **on his
+  own** — **nine live LLM runs, zero deaths**, with the share of turns on high-level offload
+  tools climbing **~0% → 60%**.
+- **Planning** ([5_planning](./5_planning.md)) — the offload carried up to the *model* tier:
+  **Sonnet-5 plans sparsely, Haiku executes** the loop. A persistent orchestrator holds
+  `plan.json` (goal + milestones + progress across runs), runs one milestone per subprocess,
+  **judges completion against live game state**, and advances / re-runs / escalates. Proven
+  end-to-end on a short goal. It surfaced a real bug — the subprocess model left Perry
+  **link-dead** between runs and aggressive mobs beat his idle body to 0 HP — now **fixed**
+  by quitting *cleanly* (save + extract from the world) on every teardown, with login
+  restoring his position.
+- **The capstone — hunting the minotaur** ([6_minotaur](./6_minotaur.md)) — turning the
+  toolkit on the goal. Added two perception tools: **`scan`** (mobs in adjacent rooms, by
+  direction; light-gated — dark = just "shuffling") and **`locate`** (a named mob's room,
+  zone-scoped). The agent uses them well and reliably *finds* the minotaur — but "the massive
+  Minotaur" is a fast **cross-zone roamer** (newbie zone ⇄ *Sewer, First Level*), so pinning
+  it in-room for a `consider` is the live challenge. Chasing it once stranded Perry in the
+  sewer, which drove a **safe-park-before-quit** fix (never leave him saved inside a
+  dangerous zone). Still **zero deaths** — the safety layer held.
 
 ## Technical Conclusions
 
-The core bet held: **offloading the mechanics to deterministic tools makes an LLM a
-reliable MUD player.** A fragile Thief that circled aimlessly and hit the token wall in
-week 1 now navigates, grinds to level 4, trains a skill, and hunts a blank map for one
-model decision per mob and one per destination — surviving nine runs without dying. Each
-supporting hypothesis held (content fingerprints give stable ids; an adjacency list on
-confirmed moves suffices; combat is offloadable; the one world-model carried navigation,
-combat, survival, and discovery). The persistent surprise is that **the limiter was
-almost always navigation** — even the combat arc kept reaching back into it — which is
-why the toolkit's final shape (`move · travel_to · explore · hunt · fight · seek` over a
-survival layer of wimpy · provision · heal · safe-sleep) is as much a navigation result
-as a combat one. **Navigation → combat is done and proven; the third ability, planning
-([5_planning](./5_planning.md)), is now underway and paused at a validated checkpoint** —
-the offload principle carried up to the *model* tier (Sonnet-5 plans sparsely, Haiku
-executes the loop): a persistent orchestrator decomposes a goal into machine-checkable
-milestones, runs each, judges completion against live game state, and advances/replans —
-proven end-to-end on a short goal, with one architecture bug (link-dead between runs)
-isolated for the next sitting. Parked follow-ups (in the detail entries): the parse_room
-parens/fingerprint migration is superseded by door-stable identity; a bounded nearby
-explore so a single grind spot isn't respawn-bound; richer directional biasing for `seek`.
+The core bet held: **offloading the mechanics to deterministic tools makes an LLM a reliable
+MUD player.** A fragile Thief that circled aimlessly and hit the token wall in week 1 now
+navigates, grinds to level 4, trains skills, plans its own goals, and hunts a named boss on a
+blank map — one model decision per mob, one per destination — without dying. Every hypothesis
+held (content fingerprints give stable ids; an adjacency list on confirmed moves suffices;
+combat is offloadable; the one world-model carried navigation, combat, survival, discovery,
+and planning; **offload extends to the model tier**). The persistent surprise stayed true to
+the end: **the limiter is almost always navigation/finding** — the combat arc kept reaching
+back into it, and the capstone reduces to it too (finding and *holding* a fast roamer).
+Planning's one real bug (link-dead between runs) is fixed. **The live edge of the story is the
+capstone**: the toolkit finds the minotaur on command, but catching a cross-zone roamer for
+the kill is the open problem — the same "remembering and finding where the fighting is" theme,
+one turn of the screw harder. Parked follow-ups (in the detail entries): the parse_room
+parens/fingerprint migration is superseded by door-stable identity; a bounded nearby explore
+so a single grind spot isn't respawn-bound; disambiguating name-based `travel_to`/`seek`
+(room names repeat); and camp/intercept tactics for the roaming boss.
 
 ## Key Takeaway
 
-Give an LLM a memory and move every mechanic — walking, fighting, healing, finding — into
-deterministic tools, and a level-1 Thief that once wandered in circles will grind to
-level 4, train at its guild, and explore a blank map on its own; **what's left to build
-is rarely the fighting — it's remembering, and finding, where the fighting is good.**
+Give an LLM a memory and offload every mechanic — walking, fighting, healing, planning,
+finding — and a level-1 Thief that once wandered in circles will grind to level 4, train at
+its guild, decompose its own goals, and hunt a named boss across a blank map; **what's left to
+build is rarely the fighting — it's remembering, and finding, where the fighting is good.**

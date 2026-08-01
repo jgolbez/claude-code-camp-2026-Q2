@@ -128,3 +128,7 @@ left to solve isn't the fighting, it's **remembering where the fighting is good.
 Obs B4 — the payoff run — to confirm grind-spot memory closes the level-4 + train test.
 Then the third ability (**goal planning**), and the parked follow-ups (parens/fingerprint
 migration, sewer grind ladder, a move-level over-level guard).
+
+---
+
+> **📖 Story thread** — *Prev:* [← 2. Navigation](./2_capable.md) · [↑ Overview](./00_summary.md) · *Next:* [4. Completing the toolkit →](./4_seek.md)

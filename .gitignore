@@ -14,3 +14,7 @@
 
 # Boukensha runtime plan state (written by the orchestrator per goal, not source)
 .boukensha/plan.json
+
+# Nested runtime dirs from scripts run in the wrong cwd
+**/.boukensha/world.json
+**/.boukensha/sessions/

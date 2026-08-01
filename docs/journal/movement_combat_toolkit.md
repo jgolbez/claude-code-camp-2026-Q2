@@ -131,3 +131,7 @@ wimpy · provision · heal · safe-sleep — a fragile level-1 Thief, driven by 
 makes one choice per mob and one per destination, grinds to level 4, trains, and hunts a
 blank map on its own, while the tools and the game do the walking, the fighting, and the
 finding. **navigation → combat → planning**; two of three abilities are done.
+
+---
+
+> **📖 Reference doc** — a single-page toolkit companion to the story, not a chapter itself. [↑ Overview / start the journey](./00_summary.md)

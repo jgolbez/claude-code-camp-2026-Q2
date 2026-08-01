@@ -205,3 +205,7 @@ mapping pass (never explore toward the sewer) to give the circuit rooms #ids, th
 fight tool's consider-gate gives the verdict and wimpy/teleporter guard the downside); or
 (c) reconsider whether L4 is the right time, vs. levelling first. **Also validated for free:**
 the safe-zone guard correctly fires on the real "Sewer, First Level" zone.
+
+---
+
+> **📖 Story thread** — *Prev:* [← 5. Planning](./5_planning.md) · [↑ Overview](./00_summary.md) · *Next:* — **the live edge of the story** (the capstone is in progress)

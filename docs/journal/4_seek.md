@@ -182,3 +182,7 @@ respawn-throttled to line that up on demand. That exact path is covered by the u
 and the `[chose it over: …]` line will print whenever a run catches the zone freshly
 populated. So: **Perry fights up to his weight, ignores what's beneath him, and the "why"
 is legible in the tool output.**
+
+---
+
+> **📖 Story thread** — *Prev:* [← 3. Combat & leveling](./3_combat.md) · [↑ Overview](./00_summary.md) · *Next:* [5. Planning →](./5_planning.md)
