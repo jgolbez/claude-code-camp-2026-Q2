@@ -120,10 +120,16 @@ module Boukensha
             # sewer). `where` reports "Players in <Zone>." Best-effort — a lookup or
             # recall hiccup must never block the quit itself.
             begin
+              # Flush any pending/async server output FIRST (e.g. a room description
+              # pushed by a just-issued teleport). Without this, the read below can
+              # hand back the PREVIOUS command's output instead of `where`'s — which
+              # misreads the zone and skips the safe-park (the sewer-quit bug). The
+              # short sleep lets in-flight bytes arrive so the second drain clears them.
+              session.drain; sleep 0.2; session.drain
               zone = MudText.strip_ansi(send_cmd.call("where"))[/Players in ([^\n.]+)/i, 1].to_s.strip
               send_cmd.call("teleport MIDGAARD") unless safe_to_quit_here.call(zone)
-            rescue StandardError
-              # ignore — proceed to quit regardless
+            rescue StandardError => e
+              warn "[quit_cleanly DEBUG] safe-park raised: #{e.class}: #{e.message}"
             end
             session.drain
             session.send_command("quit")
