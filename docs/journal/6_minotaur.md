@@ -114,3 +114,27 @@ name matches multiple known rooms — and return "N rooms match '<name>': #id1, 
 which" instead of guessing. That turns the fuzziness from a silent mis-route into an explicit
 choice. Not required for the minotaur hunt (which should use scan-by-direction), but it
 hardens all name-based navigation.
+
+### Slice 4 — agent test: Perry CAN locate it, but can't CATCH it (2026-08-01)
+Handed the real Haiku executor a recon-only goal ("find + `consider` the minotaur, do NOT
+fight") with the updated prompt. Result — the tools land, the chase does not:
+- **The agent uses the new tools correctly and on its own:** `locate` ×52, `scan` ×285,
+  `move` ×299, `travel_to` ×42, `rest_until` ×6 — it even echoed the name-fuzziness rule in
+  its own report ("home in by direction … since room names repeat"). Guidance works.
+- **It located the minotaur and tracked it moving** (`locate` showed it in *Another Corner*,
+  then *A T-Intersection In The Passage*) — but **never got it into `scan` range**. The boss
+  roams fast and far, and Perry **burned his whole movement budget (0/91) chasing it**.
+- **It roams ACROSS a zone boundary.** Perry ended in **"The Pool In The Sewer"** — the
+  minotaur wanders between the newbie zone and the sewer, and `locate`/`where` (zone-scoped)
+  *loses* it when it crosses over, so the agent followed it into the sewer.
+
+**Safety issue — the "safe-park before quit" gap just bit for real.** The chase left Perry
+**quit inside the sewer** (a no-quit zone) — on reconnect he'd have re-entered the maze. He
+was at full HP and I teleported him back to the Temple, but this **promotes safe-park-before-
+quit from "later" to a real fix**, and argues for an agent guard: *don't chase a target out
+of your zone / into an unprovisioned no-quit zone.*
+
+**Strategy insight:** you can't out-walk a fast cross-zone roamer by scan+chase (movement is
+finite; the target outruns you). The answer is **camp / intercept, not chase** — sit at its
+home room (*A Corner Room*) or a chokepoint on its circuit and let it come to you (scan each
+tick; when it's adjacent, step in and `consider`/`fight`). That's the next thing to try.
