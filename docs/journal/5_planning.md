@@ -167,13 +167,40 @@ Thief with backstab trained**, self-directed.
   and advances / re-runs / escalates. Proven on a short goal.
 
 **Open (scoped for the next sitting):**
-1. **Root bug — link-dead between runs:** the subprocess model leaves Perry's idle body in
-   the world between runs; an aggressive mob stunned him to 0 HP. Fix with a clean `quit`
-   per run (leaning here), a persistent connection, or safe-park.
+1. ~~**Root bug — link-dead between runs.**~~ **FIXED (2026-08-01, below).**
 2. **In-loop recovery** (the validated wait-out-stun → heal → safe-park pattern) and
    **block → planner replan** (escalation currently just stops).
-3. **Lib integration** of the orchestrator (it's a scratchpad module today), then the full
-   level-5 run — a long, respawn-paced, multi-run grind.
+3. The full level-5 run — a long, respawn-paced, multi-run grind.
 
-**Artifacts:** design in this file; the working orchestrator + planner prompt in the
-session scratchpad (to be moved into the lib on resume).
+**Artifacts:** design in this file; the orchestrator + executor now live in the repo at
+`week1_baseline/ruby/12_context/planning/` (they had been only in the session scratchpad,
+which was wiped between sittings — recovered verbatim and committed).
+
+### Fix — link-dead between runs (2026-08-01)
+**The bug, precisely:** ending a run or a state read just **dropped the socket**. CircleMUD
+keeps a disconnected character's body in the world (link-dead), so Perry's idle body sat in
+the aggressive newbie zone and got beaten to 0 HP in the gap between runs. Two code paths
+did the bare close: the executor subprocess exiting, and the orchestrator's `read_state`
+(which runs *often* — before/after every milestone).
+
+**The fix — quit cleanly, everywhere.** The in-game `quit` command **saves the character and
+extracts it from the world**, so there's no attackable body left behind.
+- New **`mud_quit`** tool: sends `quit` *without* waiting for the `> ` prompt (quit drops the
+  connection, so the normal read-until-prompt would hang), briefly drains the goodbye, closes.
+- **`mud_disconnect` now aliases the clean quit** — a bare socket-close is never the right
+  thing for a stateful character, so the link-dead path is removed at the tool layer.
+- **`Boukensha.run` quits the MUD on teardown** (in `ensure`) — fixes the executor subprocess
+  path for *every* run, not just the orchestrator's.
+- **`read_state` quits** instead of disconnecting.
+
+**Verified before building on it (the "don't assume" lesson, applied):** a probe moved Perry
+one room, quit, reconnected — and he **re-entered the room he quit in**, not a reset load
+room. So quit-on-exit **preserves position**: the grind-spot and any `at_place` progress
+survive across runs, at no re-travel cost. Then validated end-to-end — a real executor
+subprocess (exit 0, reply intact, teardown clean) and `read_state` both leave Perry **safe at
+44/44**. Link-dead is now structurally impossible through the tools.
+
+**Design note this surfaced:** milestones should be checkpoints on **persistent character
+state** (xp, level, skills, items) — all of which survive a quit — rather than transient
+world state. Location happens to survive here too, but the planner prompt already steers
+toward xp/level/skill checks, which is the robust choice.
