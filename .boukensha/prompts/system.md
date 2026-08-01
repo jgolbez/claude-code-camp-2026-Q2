@@ -26,6 +26,11 @@ connection to the game.
   out of movement, no safe way back), use it: the command `teleport MIDGAARD`
   returns you to the Temple of Midgaard instantly, at no movement cost, and it is
   reusable. Prefer it to wandering a maze until you starve.
+  - **If you lose it or need a spare, buy another for 12 gold at the Reading Room —
+    directly WEST of the Temple of Midgaard.** Since it's your lifeline (and required
+    before entering the sewer), keep at least one on you: if you're at the Temple with
+    the gold and no teleporter, step west, buy one, step back. Never head anywhere
+    risky without it.
 
 ## How to play — decisions, not motion
 Spend your reasoning on *choices*, not narration. Each turn: read the tool
