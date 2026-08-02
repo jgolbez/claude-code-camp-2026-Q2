@@ -739,18 +739,17 @@ module Boukensha
             if (found = world.resolve_destination(target))
               return "Found \"#{target}\" — it's #{world.name_for_id(found)} (##{found}). → travel_to \"#{target}\" to go there (or you may be standing in it)."
             end
-            # ZONE LEASH: if exploring stepped us OUT of the zone we started in, stop — don't
-            # keep wandering across the map (this is the Poor-Alley failure). Try to recall to
-            # safety, then VERIFY it (some rooms block teleport) and report honestly, so the
-            # agent knows its real state and can reposition/retry deliberately.
+            # DANGER LEASH: only stop if exploring wandered into a DANGEROUS zone (the sewer,
+            # an over-level area) — roaming across safe town/newbie sub-zones is fine. Leashing
+            # on EVERY zone crossing turned boundary-heavy Midgaard into a seek→drift→recall
+            # loop (63 recalls in one run). Recall out of the dangerous zone and report.
             z = zone_now.call
-            if start_zone && z && z.downcase != start_zone.downcase
+            if z && !safe_to_quit_here.call(z)
               recall_safe.call
               back = zone_now.call
-              safe = back.nil? ? false : back =~ /midgaard/i
-              recovery = safe ? "Recalled you to safety (#{back})." :
-                         "Tried to recall but you're still at #{world.name_for_id(world.current_id)} (#{back.inspect}) — `recall` again or `move` back out."
-              return "Stopped seeking \"#{target}\": exploring drifted out of #{start_zone.inspect} into #{z.inspect}, so it isn't reachable from there through open frontiers (it may be behind a locked door, or in a different area). #{recovery} To reach it: `travel_to` a hub INSIDE #{target.inspect}'s area first, or clear the blocker (open/pick the door in its direction), then seek again from there."
+              recovery = (back && back =~ /midgaard/i) ? "Recalled you to safety (#{back})." :
+                         "Tried to recall — you're at #{world.name_for_id(world.current_id)} (#{back.inspect}); `recall` again or `move` out."
+              return "Stopped seeking \"#{target}\": exploring reached #{z.inspect}, a dangerous zone to wander into blindly. So \"#{target}\" isn't reachable from your start area through open frontiers — it may be behind a locked door, or genuinely in that area. #{recovery} `travel_to` a hub nearer it and seek again, or clear the blocker (open/pick the door) first."
             end
             case step
             when /Nothing left to explore|no unexplored exits|search halted/i then break
