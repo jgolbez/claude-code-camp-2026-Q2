@@ -69,12 +69,28 @@ module Boukensha
       File.join(Dir.pwd, ".boukensha", "world.json")
     end
 
-    def initialize(path: self.class.default_path)
+    def initialize(path: self.class.default_path, announce: true)
       @path       = path
       @rooms      = {}   # fingerprint => room hash
       @next_id    = 0
       @current_fp = nil
+      existed     = File.exist?(@path)
       load
+      announce_load(existed) if announce
+    end
+
+    # Say which map is in play the moment it loads. This one stderr line is the
+    # antidote to the "stray map" footgun: if nav looks broken, you can see at a
+    # glance WHICH world.json is loaded and how many rooms it holds. When the file
+    # didn't exist we've just started a fresh (empty) map — call that out loudly,
+    # since an unexpected fresh map is the classic sign of a wrong launch
+    # directory or BOUKENSHA_DIR.
+    def announce_load(existed)
+      warn "[boukensha] world map: #{@path} (#{@rooms.size} rooms)"
+      return if existed
+
+      warn "[boukensha] NOTE: no existing map there — starting a fresh one. " \
+           "If you expected a populated map, check your launch directory or BOUKENSHA_DIR."
     end
 
     # Observe a room from raw MUD text. Returns a one-line `[memory]` summary, or
