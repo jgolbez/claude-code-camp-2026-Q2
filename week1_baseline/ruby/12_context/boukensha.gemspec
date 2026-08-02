@@ -25,5 +25,9 @@ Gem::Specification.new do |spec|
   # TUI powered by charm (bubbletea + lipgloss + bubbles bindings).
   spec.add_dependency "charm"
 
+  # Test suite (stdlib-bundled gems; keeps the harness itself dependency-light).
+  spec.add_development_dependency "minitest", "~> 5.0"
+  spec.add_development_dependency "rake", "~> 13.0"
+
   # net/http and json are stdlib. Users supply their own ANTHROPIC_API_KEY.
 end
