@@ -47,9 +47,26 @@ module Boukensha
 
     # Resolve the store path from the boukensha working dir (set by the launcher)
     # so world.json sits next to the session logs.
+    #
+    # BOUKENSHA_DIR is authoritative when set. Otherwise, rather than blindly
+    # anchoring to Dir.pwd (which silently forks a SEPARATE map when you launch
+    # from a subdirectory — the "stray map" footgun), walk up from the current
+    # directory to the nearest ancestor that already holds a .boukensha/world.json
+    # and use that, the way git finds its .git. Only when no map exists anywhere
+    # upward do we fall back to creating one at Dir.pwd.
     def self.default_path
-      dir = ENV["BOUKENSHA_DIR"] || File.join(Dir.pwd, ".boukensha")
-      File.join(dir, "world.json")
+      return File.join(ENV["BOUKENSHA_DIR"], "world.json") if ENV["BOUKENSHA_DIR"]
+
+      dir = Dir.pwd
+      loop do
+        candidate = File.join(dir, ".boukensha", "world.json")
+        return candidate if File.exist?(candidate)
+
+        parent = File.dirname(dir)
+        break if parent == dir # reached filesystem root
+        dir = parent
+      end
+      File.join(Dir.pwd, ".boukensha", "world.json")
     end
 
     def initialize(path: self.class.default_path)
