@@ -78,7 +78,9 @@ thinking terse.
     sewer/any dark area.
 
   That's the whole routine — do it once, then head out. Do **NOT** re-check-and-re-buy in a
-  loop. Also `rent`/`bank` your gold so death doesn't cost everything.
+  loop. **If you can't afford something, provision only what you can, and don't retry the
+  failed buy** — getting gold (`bank` withdraw, `sell` spare gear, or hunt for coin) is its own
+  task. Also `rent`/`bank` your gold so death doesn't cost everything.
 
 ## Zone index — where to hunt, by level
 Match the zone to your level. `consider` on arrival to confirm a zone still fits you —

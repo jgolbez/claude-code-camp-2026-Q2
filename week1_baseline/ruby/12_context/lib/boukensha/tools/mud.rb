@@ -1680,7 +1680,15 @@ module Boukensha
           } do |action:, args: nil|
           next guard.call if guard.call
           begin
-            send_cmd.call(p.shop(action, args: args))
+            result = send_cmd.call(p.shop(action, args: args))
+            # A buy that failed for lack of gold: say so plainly and point at ways to GET
+            # gold, so the agent doesn't just retry the same purchase in a loop (the no-money
+            # failure mode). Earning gold is a separate, agent-driven task.
+            if action.to_s =~ /buy/i &&
+               MudText.strip_ansi(result.to_s) =~ /can'?t afford|don'?t have (?:enough|that much)|not enough (?:gold|money)|too poor/i
+              result = "#{result}\n→ You can't afford that — retrying the same buy will keep failing. Getting gold is a SEPARATE task: `bank` withdraw if you have savings, `sell` spare gear here, or hunt mobs for coin, then come back. Provision only what you CAN afford, and don't loop."
+            end
+            result
           rescue ArgumentError => e
             "error: #{e.message}"
           end
