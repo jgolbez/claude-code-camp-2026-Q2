@@ -1145,7 +1145,7 @@ module Boukensha
             essentials << "your TELEPORTER (buy one ~12 gold at the Reading Room, west of the Temple)" unless have_tp
             essentials << "a lit LIGHT source (wield/hold a candle or torch — you're blind in dark rooms without one)" unless have_light
             stock = []
-            stock << "FOOD — buy 1 waybread, EAT it, then buy 1 more for the road (waybread fills you completely; a grocer sells it)" unless have_food
+            stock << "FOOD — at The Bakery (NORTH off Main Street; the baker sells waybread): buy 1 waybread, EAT it (it fills you completely), then buy 1 more for the road" unless have_food
             stock << "WATER — carry a CANTEEN (buy one at the water shop EAST of Market Square if you lack one) and fill it at a fountain" unless have_drink
 
             if essentials.any?

@@ -70,8 +70,10 @@ thinking terse.
   practice first.
 - **Provision — a simple routine, done ONCE at the start of a run (never loop it).** Run
   **`provisions`** to see what you're missing, then:
-  - **Food:** if you have no waybread, **buy 1 waybread, EAT it** (waybread fills you
-    completely), **then buy 1 more for the road.** Done — you're fed and carry a reserve.
+  - **Food:** waybread is sold at **The Bakery — NORTH off Main Street** (the baker). If you
+    have no waybread, go there, **buy 1 waybread, EAT it** (it fills you completely), **then
+    buy 1 more for the road.** (Walking Main Street to shop is fine — the "don't grind Main
+    Street" rule is about *killing* there, not passing through.)
   - **Water:** you want a **canteen**. If you don't have one, buy one from the **water shop on
     the EAST side of Midgaard's Market Square**; **fill it at a fountain** when it runs dry.
   - **Essentials:** confirm your **teleporter** and a **lit light** — both required before the
