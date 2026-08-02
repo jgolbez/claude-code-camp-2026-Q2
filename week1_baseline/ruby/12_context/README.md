@@ -71,6 +71,29 @@ Emitted whenever auto- or manual compaction runs. The TUI subscribes to this eve
 Boukensha.repl(context_window: 128_000)  # for a smaller model
 ```
 
+## Tests
+
+The suite lives in `test/` and runs under minitest via rake:
+
+```sh
+mise exec -- rake test        # run everything
+mise exec -- ruby -Itest -Ilib test/world_model_routing_test.rb   # one file
+```
+
+What's covered so far (grown out of the "stray map" debugging — see
+[journal slice 12](../../../docs/journal/6_minotaur.md)):
+
+| File | Guards |
+|------|--------|
+| `world_model_default_path_test.rb` | Map-path resolution: `BOUKENSHA_DIR` wins; otherwise **walk up to the nearest `.boukensha/world.json`** instead of forking a stray map at `Dir.pwd`. |
+| `world_model_load_announce_test.rb` | The load-time log line (`world map: <path> (<n> rooms)`) and the loud warning when a *fresh/empty* map is started — the signal that catches a wrong launch directory. |
+| `world_model_routing_test.rb` | `route_to` / `resolve_destination` over duplicate room names — resolve must pick the **reachable** twin, `route_to` nils the orphan. |
+
+**Convention:** every test uses the `with_isolated_env` helper (in `test/test_helper.rb`),
+which runs in a throwaway tmpdir with `BOUKENSHA_DIR` cleared and restores cwd + env
+afterwards — so no test can ever read or mutate the real `.boukensha/world.json`. Follow
+that pattern for any test that constructs a `WorldModel` (it saves on observe).
+
 ## Run the demo
 
 gem uninstall boukensha

@@ -304,6 +304,42 @@ unmapped name refuses (Perry doesn't move), a mapped name still routes normally.
 wander→recall loop at its source. (Lesson, again: don't assume a cause — read the logs. "Many
 teleports" was benign.)
 
+### Slice 12 — chasing a "flaky recall" led to a footgun, and the footgun got a test suite (2026-08-02)
+Provisioning runs kept *looking* like recall and `travel_to` were broken — `recall` "failed" to
+move Perry from some rooms, `travel_to "A Nexus"` said *"no mapped path connects it."* So I
+opened a proper diagnosis of **recall reliability** — and systematically ruled the recall out:
+
+- **Room no-recall flag?** No — "More Of The Hallway" (#18607) is flagged `d` (INDOORS) only.
+- **Teleporter cooldown?** No — fired `teleport MIDGAARD` twice back-to-back, both worked.
+- **`recall_safe` code bug?** No — the recall *tool* and the raw command both reached the Temple.
+
+The real cause was upstream and embarrassing: **`WorldModel.default_path` keyed off `Dir.pwd`.**
+Every diagnostic I ran from `12_context/` (with `BOUKENSHA_DIR` unset) silently built and read a
+**separate 14-room map** — where "A Nexus" was a disconnected orphan (#11, no path to the Temple).
+The **real 135-room map** routes Temple→A Nexus in 8 steps (`n n n n e n e e`). So `travel_to`
+was correct all along; I was interrogating the wrong `world.json`. This is the **stray-map trap,
+round two** — the same footgun behind the earlier "map disconnected" scare, in a new costume.
+
+Three fixes so it can't waste hours a third time:
+- **The fix.** `default_path` now walks up from `Dir.pwd` to the nearest existing
+  `.boukensha/world.json` — the way git finds `.git` — and only creates a fresh map at `Dir.pwd`
+  when none exists upward. `BOUKENSHA_DIR` stays authoritative when set.
+- **Observability.** On load, the world model now prints one line —
+  `[boukensha] world map: <path> (<n> rooms)` — plus a louder note when it's starting a *fresh*
+  (empty) map (the tell-tale of a wrong launch dir). That single line would have ended the whole
+  chase at minute one.
+- **A real test suite** — the *first* tests in `12_context` (`rake test`, 9 tests / 21
+  assertions): `default_path` resolution (the ancestor-walk case fails red on the old code), the
+  load-time announce, and `route_to`/`resolve_destination` over a graph with **duplicate room
+  names** (two "A Nexus", one reachable, one orphan — the exact ambiguity that fooled me). A
+  `with_isolated_env` guard rail means no test can ever touch the real map. See
+  [Running the tests](../../week1_baseline/ruby/12_context/README.md#tests).
+
+**Lesson (the recurring one, sharpened):** *don't assume a cause — and don't trust a live reading
+until you know which file it came from.* Recall and `travel_to` were never broken; a
+launch-directory footgun was impersonating a nav bug. It's now closed in code, surfaced in the
+logs, and pinned by tests — the first safety net under boukensha's own machinery, not just Perry's.
+
 ---
 
-> **📖 Story thread** — *Prev:* [← 5. Planning](./5_planning.md) · [↑ Overview](./00_summary.md) · *Next:* — **the live edge of the story** (the capstone is in progress)
+> **📖 Story thread** — *Prev:* [← 5. Planning](./5_planning.md) · [↑ Overview](./00_summary.md) · *Next:* — **the live edge of the story** (capstone in progress; boukensha now has its first test suite)

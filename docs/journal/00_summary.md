@@ -118,7 +118,12 @@ the kill is the open problem — the same "remembering and finding where the fig
 one turn of the screw harder. Parked follow-ups (in the detail entries): the parse_room
 parens/fingerprint migration is superseded by door-stable identity; a bounded nearby explore
 so a single grind spot isn't respawn-bound; disambiguating name-based `travel_to`/`seek`
-(room names repeat); and camp/intercept tactics for the roaming boss.
+(room names repeat); and camp/intercept tactics for the roaming boss. One more closed en
+route: a recurring **stray-map footgun** — a pwd-relative map path that silently loaded a
+separate, near-empty `world.json` and *impersonated* broken recall/`travel_to` — is now fixed
+at the source (walk up to the real map, like git finds `.git`), surfaced by a load-time
+`world map: <path> (<n> rooms)` log line, and pinned by boukensha's **first test suite**
+(`rake test`), so it can't masquerade as a nav bug a third time.
 
 ## Key Takeaway
 
