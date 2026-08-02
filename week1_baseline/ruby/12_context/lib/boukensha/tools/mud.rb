@@ -1032,12 +1032,14 @@ module Boukensha
 
             # A CLOSED (unlocked) door/grate in the way? Open it and step through — don't
             # get stuck. Uses the correct "open <object> <dir>" syntax. A LOCKED one we
-            # can't force: report it (as a Thief, `door` can pick it, or unlock w/ its key).
+            # can't force: report the FACT class-agnostically and point at the generic
+            # mechanisms — the agent decides how, per its own class (a lock-picker picks,
+            # a caster may cast, anyone can unlock with the key). We assume no class here.
             if body =~ closed_door_re
               obj   = door_noun.call(body)
               opres = MudText.strip_ansi(send_cmd.call(p.door("open", obj, direction: direction)))
               if opres =~ /locked/i
-                next "The #{obj} to the #{direction} is LOCKED — I couldn't open it. You're a Thief: pick it with `door` (action: pick, target: #{obj}, direction: #{direction}), or `unlock` it if you hold its key."
+                next "The #{obj} to the #{direction} is LOCKED — I couldn't open it. Get through it a way that suits your character: `door` with action `unlock` (needs the key), or action `pick` (needs a lock-picking skill), or find another route."
               end
               result = send_cmd.call(p.move(direction))   # door open now — go through
               body   = MudText.strip_ansi(result)
@@ -1652,7 +1654,7 @@ module Boukensha
 
         registry.tool "door",
           description: "Operate a door or container: open/close to pass, lock/unlock with a held key, " \
-                       "or 'pick' a lock (a Thief skill). Give direction when several exits have doors " \
+                       "or 'pick' a lock (needs a lock-picking skill). Give direction when several exits have doors " \
                        "(e.g. the north door).",
           parameters: {
             action:    { type: "string", description: "Action: open | close | lock | unlock | pick" },
