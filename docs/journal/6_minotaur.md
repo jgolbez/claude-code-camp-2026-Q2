@@ -287,6 +287,23 @@ charts the newbie→sewer route (record the grate/door edges so `travel_to` can 
 would turn this from a fragile crawl into a routine hunt. The minotaur is a real capstone; at
 L4 with a poor pick-lock it's a bridge too far in one sitting. **Gains banked; catch deferred.**
 
+### Slice 11 — the "so many teleports" mystery: navigation resets, not danger (2026-08-02)
+An integration run (validating the class-split + `recall` + auto-open tooling — all clean, no
+breakage) recalled ~6 times, which *looked* alarming. Investigated instead of assuming:
+**Perry's HP was 44/44 for the entire run** — never hurt, never in danger. The recalls were
+**navigation resets**. The loop: `locate` finds the minotaur at an *unmapped* room →
+`travel_to <that name>` can't resolve it → **it silently fell back to "head to the nearest
+unexplored frontier"** → which walked Perry *out of the newbie zone into town (Poor Alley)* →
+agent `recall`s to reset → repeat. So the teleporting was the agent safely coping with getting
+lost, and the safety tooling working (never stranded, never hurt).
+
+**Fix:** `travel_to` no longer wanders. An unmapped/unresolvable destination now **refuses and
+stays put**, pointing at the right tool — `seek`/`explore` to find a place, or `scan`-home to
+reach a mob — instead of silently exploring off toward an arbitrary frontier. Validated: an
+unmapped name refuses (Perry doesn't move), a mapped name still routes normally. This kills the
+wander→recall loop at its source. (Lesson, again: don't assume a cause — read the logs. "Many
+teleports" was benign.)
+
 ---
 
 > **📖 Story thread** — *Prev:* [← 5. Planning](./5_planning.md) · [↑ Overview](./00_summary.md) · *Next:* — **the live edge of the story** (the capstone is in progress)
