@@ -314,6 +314,19 @@ module Boukensha
           orient.call
         end
 
+        # Current zone name (e.g. "Newbie Zone") read live via `where`. The map itself does
+        # NOT store zones, so this is our only zone signal — used to LEASH exploration so a
+        # search can't wander out of the area it should stay in. Flush first (a just-completed
+        # room change can otherwise feed a stale read — same hazard as quit_cleanly).
+        zone_now = lambda do
+          begin
+            session.drain; sleep 0.15; session.drain
+            MudText.strip_ansi(send_cmd.call("where"))[/Players in ([^\n.]+)/i, 1]&.strip
+          rescue StandardError
+            nil
+          end
+        end
+
         # Slice 3: deterministic travel. Resolve a destination, BFS a route over
         # the mapped graph, and walk it step by step — spending no model tokens on
         # the mundane moves. Control returns to the agent only on a compelling
@@ -687,6 +700,7 @@ module Boukensha
             return "You already know #{world.name_for_id(known)} (##{known}) — use travel_to \"#{target}\", no need to seek."
           end
           provision.call
+          start_zone = zone_now.call   # LEASH the search to the zone we start seeking from
           areas = []
           max_rooms.times do
             step = begin
@@ -698,6 +712,19 @@ module Boukensha
             if (found = world.resolve_destination(target))
               return "Found \"#{target}\" — it's #{world.name_for_id(found)} (##{found}). → travel_to \"#{target}\" to go there (or you may be standing in it)."
             end
+            # ZONE LEASH: if exploring stepped us OUT of the zone we started in, stop — don't
+            # keep wandering across the map (this is the Poor-Alley failure). Try to recall to
+            # safety, then VERIFY it (some rooms block teleport) and report honestly, so the
+            # agent knows its real state and can reposition/retry deliberately.
+            z = zone_now.call
+            if start_zone && z && z.downcase != start_zone.downcase
+              recall_safe.call
+              back = zone_now.call
+              safe = back.nil? ? false : back =~ /midgaard/i
+              recovery = safe ? "Recalled you to safety (#{back})." :
+                         "Tried to recall but you're still at #{world.name_for_id(world.current_id)} (#{back.inspect}) — `recall` again or `move` back out."
+              return "Stopped seeking \"#{target}\": exploring drifted out of #{start_zone.inspect} into #{z.inspect}, so it isn't reachable from there through open frontiers (it may be behind a locked door, or in a different area). #{recovery} To reach it: `travel_to` a hub INSIDE #{target.inspect}'s area first, or clear the blocker (open/pick the door in its direction), then seek again from there."
+            end
             case step
             when /Nothing left to explore|no unexplored exits|search halted/i then break
             when /COMBAT/i
@@ -707,8 +734,8 @@ module Boukensha
             end
           end
           shape = areas.compact.uniq.last(6)
-          "Didn't find \"#{target}\" after searching #{areas.compact.uniq.size} rooms. Path drifted through: #{shape.join(' → ')}. " \
-          "If that's the wrong part of the map, travel_to a better hub first (or a landmark nearer the target), then seek \"#{target}\" again; otherwise seek again to keep expanding."
+          "Didn't find \"#{target}\" after searching #{areas.compact.uniq.size} rooms in #{start_zone || 'this area'}. Path: #{shape.join(' → ')}. " \
+          "If that's the wrong part of the map, travel_to a better hub nearer the target, then seek \"#{target}\" again; otherwise seek again to keep expanding."
         end
 
         # ── Combat: skill-aware fight-to-completion ─────────────────────────
@@ -1147,9 +1174,11 @@ module Boukensha
                        "(a guild, a shop) you've only heard of. It explores the map for you, room by room, " \
                        "and STOPS the moment it finds a room whose name matches, telling you where it is so " \
                        "you can travel_to it. Use this instead of calling `explore` over and over by hand to " \
-                       "hunt for somewhere — seek spends NONE of your turn budget on the walking. If it can't " \
-                       "find it in range, it reports which areas it passed through so you can redirect. Once " \
-                       "found, the place is on your map for good (travel_to works after).",
+                       "hunt for somewhere — seek spends NONE of your turn budget on the walking. It stays " \
+                       "within your CURRENT zone: if the place is across a boundary (e.g. into the sewer) it " \
+                       "stops and tells you rather than wandering off, so first travel_to a hub inside the " \
+                       "target's area. If it can't find it in range, it reports which areas it passed through " \
+                       "so you can redirect. Once found, the place is on your map for good (travel_to works after).",
           parameters: {
             name:      { type: "string",  description: "Name (or part of it) of the place to find, e.g. \"Thieves\" or \"Thieves guild\"" },
             max_rooms: { type: "integer", description: "How many rooms to explore before giving up (default 25)" }
