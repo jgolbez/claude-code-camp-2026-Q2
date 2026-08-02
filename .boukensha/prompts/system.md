@@ -79,8 +79,12 @@ thinking terse.
 
   That's the whole routine — do it once, then head out. Do **NOT** re-check-and-re-buy in a
   loop. **If you can't afford something, provision only what you can, and don't retry the
-  failed buy** — getting gold (`bank` withdraw, `sell` spare gear, or hunt for coin) is its own
-  task. Also `rent`/`bank` your gold so death doesn't cost everything.
+  failed buy** — raising gold is its own task: use **`money`** (`money status` ranks the ways;
+  `money withdraw` from your bank, `shop sell` spare gear, or hunt for coin).
+- **Money & the bank (`money` tool).** Banking works only at the **ATM in the Temple**. When
+  you're carrying a lot (over ~1000), `money deposit` to bank the excess — **death drops
+  carried gold, not banked gold.** `money withdraw` when you need cash; `money status` when
+  you're low, for a ranked plan to raise more. Also `rent` at an inn to protect your gear.
 
 ## Zone index — where to hunt, by level
 Match the zone to your level. `consider` on arrival to confirm a zone still fits you —

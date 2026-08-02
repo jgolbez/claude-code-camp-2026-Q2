@@ -1686,7 +1686,7 @@ module Boukensha
             # failure mode). Earning gold is a separate, agent-driven task.
             if action.to_s =~ /buy/i &&
                MudText.strip_ansi(result.to_s) =~ /can'?t afford|don'?t have (?:enough|that much)|not enough (?:gold|money)|too poor/i
-              result = "#{result}\n→ You can't afford that — retrying the same buy will keep failing. Getting gold is a SEPARATE task: `bank` withdraw if you have savings, `sell` spare gear here, or hunt mobs for coin, then come back. Provision only what you CAN afford, and don't loop."
+              result = "#{result}\n→ You can't afford that — retrying the same buy will keep failing. Getting gold is a SEPARATE task: `money withdraw` if you have savings, `sell` spare gear here, or hunt mobs for coin, then come back. Provision only what you CAN afford, and don't loop."
             end
             result
           rescue ArgumentError => e
@@ -1785,18 +1785,51 @@ module Boukensha
           send_cmd.call(p.rent)
         end
 
-        registry.tool "bank",
-          description: "Use a bank at a banker NPC: check balance, deposit gold (so death does not drop " \
-                       "it), or withdraw.",
+        registry.tool "money",
+          description: "Your MONEY subsystem — gold on hand, the bank, and how to get more. Banking works " \
+                       "ONLY at the ATM in the Temple of Midgaard. Actions: 'status' (default) — carried " \
+                       "gold plus a RANKED plan to raise cash if you're low, or a nudge to bank if you're " \
+                       "carrying a lot; 'balance' — your bank balance; 'deposit' (with an amount, or none " \
+                       "to auto-secure the EXCESS over a ~500 reserve when you top 1000) — bank gold so " \
+                       "death can't drop it; 'withdraw' + amount — take gold out (needs a balance).",
           parameters: {
-            action: { type: "string",  description: "Action: balance | deposit | withdraw" },
-            amount: { type: "integer", description: "Amount of gold (for deposit/withdraw)" }
-          } do |action:, amount: nil|
+            action: { type: "string",  description: "status | balance | deposit | withdraw" },
+            amount: { type: "integer", description: "Gold amount (for deposit/withdraw)" }
+          } do |action: "status", amount: nil|
           next guard.call if guard.call
           begin
-            send_cmd.call(p.bank(action, amount: amount))
-          rescue ArgumentError => e
-            "error: #{e.message}"
+            carried  = MudText.strip_ansi(send_cmd.call(p.info_self("gold")).to_s)[/(\d+)\s+(?:gold|coin)/i, 1].to_i
+            not_here = /cannot do that here|no bank|not a bank/i
+            case action.to_s.downcase
+            when "balance"
+              res = MudText.strip_ansi(send_cmd.call(p.bank("balance")).to_s)
+              res =~ not_here ? "Banking only works at the ATM in the Temple of Midgaard — recall/travel_to the Temple, then `money balance`." : res.lines.reject { |l| l.strip.empty? }.first&.strip
+            when "withdraw"
+              next "Say how much to withdraw (the amount)." unless amount
+              res = MudText.strip_ansi(send_cmd.call(p.bank("withdraw", amount: amount)).to_s)
+              res =~ not_here ? "Withdraw at the Temple ATM — recall/travel_to the Temple first." : res.lines.reject { |l| l.strip.empty? }.first&.strip
+            when "deposit"
+              amt = amount || (carried > 1000 ? carried - 500 : 0)   # auto-secure the excess over a 500 reserve
+              next "Carrying #{carried} gold — under 1000, no need to bank yet (keep it for shopping)." if amt <= 0
+              res = MudText.strip_ansi(send_cmd.call(p.bank("deposit", amount: amt)).to_s)
+              res =~ not_here ? "You have #{carried} gold worth securing, but banking only works at the Temple ATM — go there, then `money deposit`." : "Banked #{amt} gold — death can't drop banked gold. #{res.lines.reject { |l| l.strip.empty? }.first&.strip}"
+            else # status / plan
+              out = ["Gold on hand: #{carried}."]
+              if carried <= 50
+                out << "Low on cash. Ways to raise it, best first:"
+                out << "  1. WITHDRAW from your bank if you have a balance — instant (`money balance` at the Temple ATM)."
+                out << "  2. SELL spare or duplicate gear at a shop (`shop sell <item>`)."
+                out << "  3. HUNT mobs — they drop coin you auto-loot on the kill."
+                out << "  (Plus any class method — e.g. a Thief can `steal`.)"
+              elsif carried > 1000
+                out << "That's a lot to carry (death drops carried gold, not banked). `money deposit` at the Temple ATM to secure the excess."
+              else
+                out << "Enough for basics. `money deposit` at the Temple ATM to bank the excess once you top 1000."
+              end
+              out.join("\n")
+            end
+          rescue MudManager::Session::Error, ArgumentError => e
+            "money error: #{e.message}"
           end
         end
 
