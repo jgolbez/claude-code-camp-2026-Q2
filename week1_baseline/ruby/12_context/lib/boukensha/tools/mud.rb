@@ -298,6 +298,22 @@ module Boukensha
           end
         end
 
+        # A CLOSED (openable) door/grate blocked the way — distinct from a solid wall
+        # ("cannot go that way"). We auto-open these so movement never gets stuck on one.
+        closed_door_re = /\bthe\s+[\w' ]+?\s+is\s+closed\b|\bit\s+seems\s+to\s+be\s+closed\b|\bisn'?t\s+open\b/i
+        # Pull the door/container noun out of a "the <X> is closed/locked" line (the last
+        # word: "the iron grate is closed" -> "grate"), defaulting to "door".
+        door_noun = lambda do |text|
+          text[/\bthe\s+([\w' ]+?)\s+is\s+(?:closed|locked)\b/i, 1]&.split&.last&.downcase || "door"
+        end
+        # Recall to the Temple AND re-orient — sync the map to our new position so a
+        # follow-up travel_to plans from where we ACTUALLY are. A raw teleport leaves the
+        # world-model thinking we're still where we left (the travel_to-after-teleport bug).
+        recall_safe = lambda do
+          send_cmd.call("teleport MIDGAARD")
+          orient.call
+        end
+
         # Slice 3: deterministic travel. Resolve a destination, BFS a route over
         # the mapped graph, and walk it step by step — spending no model tokens on
         # the mundane moves. Control returns to the agent only on a compelling
@@ -1012,16 +1028,30 @@ module Boukensha
           begin
             from_fp  = world.current_fp
             result   = send_cmd.call(p.move(direction))
-            enriched = remember.call(result, arrived_via: direction)
             body     = MudText.strip_ansi(result)
+
+            # A CLOSED (unlocked) door/grate in the way? Open it and step through — don't
+            # get stuck. Uses the correct "open <object> <dir>" syntax. A LOCKED one we
+            # can't force: report it (as a Thief, `door` can pick it, or unlock w/ its key).
+            if body =~ closed_door_re
+              obj   = door_noun.call(body)
+              opres = MudText.strip_ansi(send_cmd.call(p.door("open", obj, direction: direction)))
+              if opres =~ /locked/i
+                next "The #{obj} to the #{direction} is LOCKED — I couldn't open it. You're a Thief: pick it with `door` (action: pick, target: #{obj}, direction: #{direction}), or `unlock` it if you hold its key."
+              end
+              result = send_cmd.call(p.move(direction))   # door open now — go through
+              body   = MudText.strip_ansi(result)
+            end
+
+            enriched = remember.call(result, arrived_via: direction)
 
             # DEATH TRAP (e.g. Mid-Air): it zeroed your HP and usually has no way
             # out. Mark the exit that led here off-limits so we never route through
             # it again, then teleport to safety.
             if body =~ trap_re
               world.mark_blocked(direction.to_s.strip.downcase[0], from_fp: from_fp, reason: "DEATH TRAP")
-              send_cmd.call("teleport MIDGAARD")
-              next "DEATH TRAP — '#{direction}' drops into #{body.lines.first&.strip} which zeroes your HP. Teleported you out and marked that exit off-limits forever. Rest to recover; never go that way."
+              recall_safe.call
+              next "DEATH TRAP — '#{direction}' drops into #{body.lines.first&.strip} which zeroes your HP. Teleported you out (and re-oriented) and marked that exit off-limits forever. Rest to recover; never go that way."
             end
 
             # Same guard hunt/explore use, now for deliberate steps: don't let the
@@ -1032,11 +1062,30 @@ module Boukensha
                 world.observe(send_cmd.call(p.move(back)))
                 next "That way is ABOVE your recommended level — lethal terrain for you. Backed you out. Use travel_to a safe area or teleport MIDGAARD; do not push deeper."
               end
-              next "You're in an over-level zone and there's no safe way back the way you came — teleport MIDGAARD to escape now."
+              next "You're in an over-level zone and there's no safe way back the way you came — recall to escape now."
             end
             enriched
           rescue ArgumentError => e
             "error: #{e.message}"
+          end
+        end
+
+        registry.tool "recall",
+          description: "Recall (teleport) instantly to the safe Temple of Midgaard — your escape " \
+                       "hatch when hurt, stranded, or done in a dangerous area. Reusable, no movement " \
+                       "cost. Prefer this over a raw teleport: it RE-ORIENTS you afterward, so " \
+                       "`travel_to` works from your new spot and you get your fresh location + HP/movement.",
+          parameters: {} do
+          next guard.call if guard.call
+          begin
+            recall_safe.call
+            s   = MudText.strip_ansi(send_cmd.call(p.info_self("score")))
+            hp  = s[/(\d+)\(\d+\)\s+hit/i, 1]; mhp = s[/\d+\((\d+)\)\s+hit/i, 1]
+            mv  = s[/(\d+)\(\d+\)\s+movement/i, 1]
+            loc = world.name_for_id(world.current_id) rescue nil
+            "Recalled to #{loc || 'the Temple of Midgaard'}. HP #{hp}/#{mhp}, #{mv} movement. Safe — standing by."
+          rescue StandardError => e
+            "Recalled (teleported to the Temple), but couldn't read state: #{e.message}"
           end
         end
 
