@@ -157,7 +157,12 @@ module Boukensha
       exits_idx = lines.index { |l| l =~ /\[\s*Exits:/i }
       return nil unless exits_idx
 
-      name_idx = lines.index { |l| !l.strip.empty? }
+      # Global broadcasts (login announcements, channel chatter) can arrive
+      # interleaved with a room read and land as the FIRST non-empty line — they must
+      # NOT be taken as the room NAME (that pollutes the map with bogus rooms like
+      # "A booming voice announces, 'Welcome Perry to the realm!'"). Skip them.
+      broadcast_re = /\bannounces,|\bbooming voice\b|\bgossips?\b|\bauctions?\b|\bshouts?\b|\[\s*(?:gossip|auction|shout|newbie)\s*\]/i
+      name_idx = lines.index { |l| !l.strip.empty? && l !~ broadcast_re }
       return nil unless name_idx && name_idx < exits_idx
 
       name = lines[name_idx].strip
