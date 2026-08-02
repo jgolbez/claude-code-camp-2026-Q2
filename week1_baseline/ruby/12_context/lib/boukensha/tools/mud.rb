@@ -67,7 +67,7 @@ module Boukensha
     #   )
     #
     module Mud
-      def self.register(registry, host: "localhost", port: 4000, name:, password:)
+      def self.register(registry, host: "localhost", port: 4000, name:, password:, char_class: nil)
         session = MudManager::Session.new(host: host, port: port)
         p       = MudManager::Primitives
 
@@ -1619,38 +1619,10 @@ module Boukensha
 
         # ── Thief & survival ─────────────────────────────────────────────────
 
-        registry.tool "stealth",
-          description: "Move or act unseen — core to a fragile Thief. 'hide' before a backstab so " \
-                       "the first blow lands from concealment; 'sneak' to cross rooms without waking " \
-                       "mobs; 'visible' to drop concealment. Hiding can fail silently — do not assume " \
-                       "it worked; verify before relying on it.",
-          parameters: {
-            mode: { type: "string", description: "Mode: hide | sneak | visible" }
-          } do |mode:|
-          next guard.call if guard.call
-          begin
-            send_cmd.call(p.stealth(mode))
-          rescue ArgumentError => e
-            "error: #{e.message}"
-          end
-        end
-
-        registry.tool "steal",
-          description: "Steal an item or gold from a target with no fight — the Thief's signature skill. " \
-                       "RISKY: on failure the victim notices and may attack, which at low HP is often " \
-                       "fatal. Prefer sleeping or weak marks, and consider them first. Use item 'coins' " \
-                       "(or 'gold') to take money.",
-          parameters: {
-            item:   { type: "string", description: "Item to steal, or 'coins'/'gold' for money" },
-            victim: { type: "string", description: "Name of the mob or player to steal from" }
-          } do |item:, victim:|
-          next guard.call if guard.call
-          begin
-            combat_cmd.call(p.steal(item, victim))
-          rescue ArgumentError => e
-            "error: #{e.message}"
-          end
-        end
+        # CLASS-SPECIFIC tools (steal, stealth, …) are NOT registered inline here — they
+        # live in register_class_tools below and are added only for the matching class, so a
+        # non-Thief never gets a Thief's abilities. Everything above is generic and
+        # class-agnostic. (Gated on `char_class`; see register_class_tools / _thief_tools.)
 
         registry.tool "door",
           description: "Operate a door or container: open/close to pass, lock/unlock with a held key, " \
@@ -1724,6 +1696,12 @@ module Boukensha
           end
         end
 
+        # Register the character's CLASS-SPECIFIC tools (a Thief's steal/stealth; other
+        # classes lean on generic tools like cast_spell). Everything registered above is
+        # generic and class-agnostic; these are added only when the class matches.
+        register_class_tools(char_class, registry: registry, guard: guard,
+                             send_cmd: send_cmd, combat_cmd: combat_cmd, p: p)
+
         # Auto-connect at startup so the session is ready immediately and the
         # agent doesn't need to waste a turn calling mud_connect first.
         begin
@@ -1735,6 +1713,59 @@ module Boukensha
         end
 
       end # def self.register
+
+      # ── Class-specific tools ────────────────────────────────────────────────
+      # Kept OUT of the generic tool set on purpose: a class's signature abilities are
+      # registered only for that class, so a Mage never sees `steal` and a Thief's tools
+      # never leak into a non-Thief. Add a new class by adding a branch + a register_*
+      # method. `char_class` comes from config (identity in config).
+      def self.register_class_tools(char_class, registry:, guard:, send_cmd:, combat_cmd:, p:)
+        case char_class.to_s.strip.downcase
+        when "thief", "rogue"
+          register_thief_tools(registry: registry, guard: guard, send_cmd: send_cmd,
+                               combat_cmd: combat_cmd, p: p)
+        when "", "nil"
+          # no class configured → generic tools only
+        else
+          warn "[boukensha] no class-specific tools for class #{char_class.inspect} — generic tools only"
+        end
+      end
+
+      # Thief signature skills: move unseen, and take without a fight.
+      def self.register_thief_tools(registry:, guard:, send_cmd:, combat_cmd:, p:)
+        registry.tool "stealth",
+          description: "Move or act unseen — core to a fragile Thief. 'hide' before a backstab so " \
+                       "the first blow lands from concealment; 'sneak' to cross rooms without waking " \
+                       "mobs; 'visible' to drop concealment. Hiding can fail silently — do not assume " \
+                       "it worked; verify before relying on it.",
+          parameters: {
+            mode: { type: "string", description: "Mode: hide | sneak | visible" }
+          } do |mode:|
+          next guard.call if guard.call
+          begin
+            send_cmd.call(p.stealth(mode))
+          rescue ArgumentError => e
+            "error: #{e.message}"
+          end
+        end
+
+        registry.tool "steal",
+          description: "Steal an item or gold from a target with no fight — the Thief's signature skill. " \
+                       "RISKY: on failure the victim notices and may attack, which at low HP is often " \
+                       "fatal. Prefer sleeping or weak marks, and consider them first. Use item 'coins' " \
+                       "(or 'gold') to take money.",
+          parameters: {
+            item:   { type: "string", description: "Item to steal, or 'coins'/'gold' for money" },
+            victim: { type: "string", description: "Name of the mob or player to steal from" }
+          } do |item:, victim:|
+          next guard.call if guard.call
+          begin
+            combat_cmd.call(p.steal(item, victim))
+          rescue ArgumentError => e
+            "error: #{e.message}"
+          end
+        end
+      end
     end # Mud
   end # Tools
 end # Boukensha

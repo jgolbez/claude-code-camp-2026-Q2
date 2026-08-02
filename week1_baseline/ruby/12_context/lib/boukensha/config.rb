@@ -52,6 +52,13 @@ module Boukensha
       dig(:mud, :password)
     end
 
+    # The character's class (e.g. "thief"). Selects which CLASS-SPECIFIC tools get
+    # registered (a Thief gets steal/stealth; a caster wouldn't). Generic tools are
+    # class-agnostic and always registered. nil = register no class-specific tools.
+    def mud_class
+      dig(:mud, :class)
+    end
+
     # ---------- agent limits ----------------------------------------------
     # Static per-turn circuit breakers, read where the agent is constructed.
     # A value of 0 or nil means "disabled" (no ceiling) — useful for debugging.

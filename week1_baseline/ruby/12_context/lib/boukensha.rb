@@ -220,10 +220,11 @@ module Boukensha
     return nil unless cfg.mud_host && cfg.mud_username
 
     {
-      host:     cfg.mud_host,
-      port:     cfg.mud_port,
-      name:     cfg.mud_username,
-      password: cfg.mud_password
+      host:       cfg.mud_host,
+      port:       cfg.mud_port,
+      name:       cfg.mud_username,
+      password:   cfg.mud_password,
+      char_class: cfg.mud_class
     }
   end
   private_class_method :mud_opts_from_config

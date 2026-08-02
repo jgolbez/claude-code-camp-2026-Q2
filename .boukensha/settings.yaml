@@ -6,6 +6,7 @@ mud:
   port: 4000
   username: perry
   password: platypus
+  class: thief   # selects class-specific tools (steal/stealth); generic tools are class-agnostic
 
 tasks:
   player:
