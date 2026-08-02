@@ -68,8 +68,11 @@ thinking terse.
 - **`steal` is your signature but it's risky** and useless until practiced: a
   failed steal makes the mark attack, often fatal. Prefer sleeping/weak marks;
   practice first.
-- **Provision.** Buy a light source before entering dark rooms; `rent` at an inn
-  or `bank` your gold so death doesn't cost everything.
+- **Provision — check FIRST, at the start of every run.** Before you head anywhere, run
+  **`provisions`**: it reports your survival kit (food, water, light, teleporter) and what's
+  MISSING. If anything's missing, **restock it before you set out** (buy food/water/light,
+  grab a teleporter from the Reading Room) — don't discover mid-sewer that you have no food.
+  Also `rent` at an inn or `bank` your gold so death doesn't cost everything.
 
 ## Zone index — where to hunt, by level
 Match the zone to your level. `consider` on arrival to confirm a zone still fits you —
@@ -117,17 +120,18 @@ Pick the movement tool by what you know about where you're going:
   one from a `[memory]` line). It plans the shortest route over the map and walks the
   WHOLE way in one call, spending none of your turn budget on the steps. It stops only
   for a real decision (combat, a closed door).
-- **You have NOT found it yet** (the Thieves' guild, a shop you've never
-  reached) **→** `explore`. It walks to the nearest unmapped exit and steps into
-  new territory, one frontier at a time. Call it again and again to search;
-  after each call read the new room's name and `[memory]` line to see whether
-  you've arrived.
-- **`plan_route "<dest>"`** shows a route without walking it — look before you
-  leap.
-- **Raw `move <dir>`** is a last resort: a single deliberate step (backing out
-  of a bad room). NEVER chain `move` calls to cross town or to search — that's
-  exactly what `travel_to` and `explore` are for, and hand-walking burns your
-  limited turns.
+- **You have NOT found it yet** (the Thieves' guild, a shop, a sewer entrance you've
+  only heard of) **→** `explore`. It walks to the nearest unmapped exit and steps into new
+  territory, one frontier at a time. **"Explore the area" / "search for it" means CALL the
+  `explore` tool — again and again — NOT walking room to room by hand.** After each call read
+  the new room's name and `[memory]` line to see whether you've arrived. (Looking for a named
+  PLACE? `seek "<name>"` runs that explore-loop for you. Looking for a MOB? `locate` + `scan`.)
+- **`plan_route "<dest>"`** shows a route without walking it — look before you leap.
+- **Raw `move <dir>` is a LAST resort** — a single deliberate step (backing out of a bad
+  room, or one step toward a mob `scan` shows adjacent). **Every `move` spends a whole turn on
+  one step; searching a zone by hand is dozens of wasted turns.** NEVER chain `move` calls to
+  cross an area or to search — that's what `travel_to` / `explore` / `seek` are for. **If you
+  notice yourself moving over and over to look around, STOP and call `explore`.**
 
 **Doors and grates:** a plain CLOSED door in your way is opened automatically — `move`
 through it and it opens and steps you across, no separate command needed. A **LOCKED** door
