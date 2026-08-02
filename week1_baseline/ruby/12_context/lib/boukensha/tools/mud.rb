@@ -362,17 +362,19 @@ module Boukensha
           return "error: no destination given" if dest.empty?
 
           target = world.resolve_destination(dest)
-          if target
-            route = world.route_to(target)
-            return "#{dest.inspect} is room ##{target}, but no mapped path connects it to where you are. Explore to link them." if route.nil?
-            label = "#{world.name_for_id(target)} (##{target})"
-          else
-            fr = world.nearest_frontier_route
-            return "Can't route to #{dest.inspect}: not on the map, and no unexplored exits to head toward. Try 'look', or move manually." if fr.nil?
-            route, fid = fr
-            target = nil
-            label  = "the nearest unexplored area (room ##{fid})"
+          if target.nil?
+            # The name matches NO room we've mapped, so there's no route to plan. Do NOT
+            # silently wander toward the nearest unexplored exit — that strands the agent
+            # in the wrong place (this is exactly how it once walked out of the newbie zone
+            # into town). Refuse clearly and point at the tools that CAN reach the unmapped.
+            return "Can't travel_to #{dest.inspect} — it's not a room you've mapped, so I can't plan a route " \
+                   "(travel_to only walks places you've already visited; it will NOT wander off looking). " \
+                   "To reach somewhere unmapped: `seek \"<name>\"` or `explore` to find/map it first; to reach a " \
+                   "MOB, `scan` and `move` toward the direction it's in. If you know the room's #id, pass that."
           end
+          route = world.route_to(target)
+          return "#{dest.inspect} is room ##{target}, but no mapped path connects it to where you are yet — `explore`/`seek` to link them first, then travel_to." if route.nil?
+          label = "#{world.name_for_id(target)} (##{target})"
 
           return "Already at #{label}." if route.empty?
 
@@ -1097,9 +1099,10 @@ module Boukensha
                        "#id (e.g. '#5'). It plans the shortest route over rooms you've visited and " \
                        "walks the whole way itself. It stops and hands control back only when " \
                        "something needs a decision: combat en route, a blocked/closed exit, or " \
-                       "arriving somewhere off-map. If the destination isn't mapped yet, it heads " \
-                       "toward the nearest unexplored exit instead. Prefer this over repeated move " \
-                       "calls whenever you know where you want to go.",
+                       "arriving somewhere off-map. If the destination is NOT a room you've mapped, it " \
+                       "does NOT wander — it refuses and tells you to `seek`/`explore` (to find a place) " \
+                       "or `scan`-home (to reach a mob). Prefer this over repeated move calls whenever you " \
+                       "know where you want to go.",
           parameters: {
             destination: { type: "string", description: "Room name or #id to travel to" }
           } do |destination:|
