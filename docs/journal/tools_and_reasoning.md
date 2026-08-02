@@ -118,14 +118,16 @@ Of the 44 registered tools, most are thin command wrappers (`get_item`, `say`, `
   can beat to death). *Embedded decision:* if it's quitting from a **dangerous zone** (the
   sewer), it **recalls to the Temple first**, so the character never re-enters a maze.
 
-### Thief craft & economy
-- **`steal` / `stealth`** — the Thief's signature: take gold/items without a fight, move
-  unseen. Risky and skill-gated (a failed steal makes the mark attack).
-- **`practice`** — list your skills + remaining **practice sessions**, or train one at a
-  guildmaster. *Embedded truth the agent must respect:* practice is bought with **sessions
-  earned by leveling**, never gold — a common trap the prompt calls out.
-- **`shop` / `bank` / `rent`** — buy/sell, stash gold so death doesn't drop it, persist the
-  character at an inn.
+### Class-specific craft (Thief) & generic economy
+- **`steal` / `stealth`** — the Thief's signature, and the **only class-specific tools** in
+  the set: take gold/items without a fight, move unseen. They're registered **only for a
+  Thief** (see [Generic vs class-specific](#generic-vs-class-specific--a-character-agnostic-framework)
+  below) — a caster never sees them. Risky and skill-gated (a failed steal makes the mark attack).
+- **`practice`** *(generic)* — list your skills + remaining **practice sessions**, or train
+  one at a guildmaster. *Embedded truth the agent must respect:* practice is bought with
+  **sessions earned by leveling**, never gold — a common trap the prompt calls out.
+- **`shop` / `bank` / `rent`** *(generic)* — buy/sell, stash gold so death doesn't drop it,
+  persist the character at an inn.
 
 ## How the agent reasons — the decision flow
 
@@ -186,6 +188,33 @@ Guidance is encoded in **two** places, on purpose:
 The result is an agent that can be *told* the right strategy and *prevented* from the fatal
 tactical error — which is what lets a ~44-HP Thief play autonomously across many runs without
 dying.
+
+## Generic vs class-specific — a character-agnostic framework
+
+boukensha is a **generic MUD harness**, not a "Perry" program. Identity *and* class live in
+**config** (`mud.username`, `mud.class`), never in the tool code — so the same harness can play
+a Thief, a Mage, or a Cleric. That discipline is visible in how the tools are organised:
+
+- **The generic tools are class-agnostic** — `move`, `travel_to`, `explore`, `hunt`, `fight`,
+  `consider`, `rest_until`, `scan`, `locate`, `recall`, `door`, the economy tools. None of them
+  assume what class the character is. A locked door is the tell: the tool does **not** say
+  "pick it" (that assumes a Thief); it reports the door is *locked* and points at the `door`
+  tool's generic `unlock`/`pick` actions, and the **agent** decides how, per its class. (An
+  early leak where `move` hard-coded "you're a Thief" was fixed to exactly this.)
+- **Even combat is class-agnostic.** `fight` opens with the character's **best *trained*
+  opener**, read from the game through a shared skill catalog — a Thief leads with backstab, a
+  Warrior with bash. The same code plays either; nothing is hard-wired to backstab.
+- **Class-specific abilities are separated and gated by config.** A Thief's signature tools —
+  `steal`, `stealth` — are registered **only for the Thief class**, by a class-tool registration
+  keyed on `mud.class`. A Mage never sees them (it leans on the already-generic `cast_spell`).
+  Adding a class is a config value plus one small class-tool branch — **the generic tools don't
+  change.**
+
+**The line we hold:** never bake a class behaviour into a generic tool. Generic tools describe
+*what the game offers*; the character's class (in config) and the agent's persona (in the system
+prompt) decide *which of those a given character reaches for*. Point the harness at a different
+config and the whole generic toolkit works unchanged, with only that class's signature tools
+swapped in.
 
 ---
 

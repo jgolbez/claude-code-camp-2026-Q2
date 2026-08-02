@@ -61,6 +61,11 @@ summary, never per-room LLM reasoning. Once found, the place is on the map forev
 - **Skill-aware combat** reads the character's trained skills from the game (`practice`)
   and interprets them through a **class-agnostic catalog** (a Thief's backstab, a
   Warrior's bash — same code). Identity lives in config, not the tool.
+- **Generic vs class-specific tools** — every tool above is **class-agnostic** and always
+  registered; a class's *signature* abilities (a Thief's `steal`/`stealth`) are registered
+  **only for that class**, gated on `mud.class` in config. A generic tool never assumes a
+  class (a locked door points at generic `unlock`/`pick`, not "you're a Thief"). See
+  [tools & reasoning → Generic vs class-specific](./tools_and_reasoning.md#generic-vs-class-specific--a-character-agnostic-framework).
 - **Grind-spot memory** tags rooms where safe prey was found, so `hunt` returns to
   known-good hunting instead of re-searching.
 
