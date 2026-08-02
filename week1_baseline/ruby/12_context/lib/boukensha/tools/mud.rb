@@ -227,7 +227,18 @@ module Boukensha
               end
             end
             if thirsty
-              if (m = inv.match(drink_kw))
+              at_fountain = world.rooms_with_resource("water").any? { |r| r["id"] == world.current_id }
+              if at_fountain
+                # A fountain in this room: drink from it (free, unlimited) and top up any
+                # container we carry, so we leave with a full canteen. Generic — any character.
+                send_cmd.call("drink fountain")
+                if (c = inv.match(drink_kw))
+                  send_cmd.call("fill #{c[0].downcase} fountain")
+                  notes << "[upkeep] thirsty → drank at the fountain and refilled the #{c[0].downcase}."
+                else
+                  notes << "[upkeep] thirsty → drank at the fountain here (no container to refill — get a canteen)."
+                end
+              elsif (m = inv.match(drink_kw))
                 send_cmd.call(p.consume("drink", m[0].downcase))
                 notes << "[upkeep] thirsty → drank from #{m[0].downcase}."
               else
