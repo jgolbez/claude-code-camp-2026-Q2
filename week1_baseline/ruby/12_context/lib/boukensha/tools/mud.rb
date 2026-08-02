@@ -739,17 +739,14 @@ module Boukensha
             if (found = world.resolve_destination(target))
               return "Found \"#{target}\" — it's #{world.name_for_id(found)} (##{found}). → travel_to \"#{target}\" to go there (or you may be standing in it)."
             end
-            # DANGER LEASH: only stop if exploring wandered into a DANGEROUS zone (the sewer,
-            # an over-level area) — roaming across safe town/newbie sub-zones is fine. Leashing
-            # on EVERY zone crossing turned boundary-heavy Midgaard into a seek→drift→recall
-            # loop (63 recalls in one run). Recall out of the dangerous zone and report.
+            # DANGER BOUNDARY: if exploring crossed into a DANGEROUS zone (the sewer, an
+            # over-level area), STOP and hand back — but do NOT recall. Entering an unsafe zone
+            # is allowed; recall is only for fleeing a fight or finishing a run. So we just pause
+            # the blind auto-search at the threshold and let the agent decide whether to press in
+            # (deliberately, provisioned). Roaming safe town/newbie sub-zones doesn't trip this.
             z = zone_now.call
             if z && !safe_to_quit_here.call(z)
-              recall_safe.call
-              back = zone_now.call
-              recovery = (back && back =~ /midgaard/i) ? "Recalled you to safety (#{back})." :
-                         "Tried to recall — you're at #{world.name_for_id(world.current_id)} (#{back.inspect}); `recall` again or `move` out."
-              return "Stopped seeking \"#{target}\": exploring reached #{z.inspect}, a dangerous zone to wander into blindly. So \"#{target}\" isn't reachable from your start area through open frontiers — it may be behind a locked door, or genuinely in that area. #{recovery} `travel_to` a hub nearer it and seek again, or clear the blocker (open/pick the door) first."
+              return "Paused seeking \"#{target}\": auto-exploring just crossed into #{z.inspect} — a dangerous zone I won't blind-search through. You're at #{world.name_for_id(world.current_id)} (##{world.current_id}). \"#{target}\" is likely in there, or behind a locked door. If you mean to go in, make sure you're provisioned and then `explore`/`scan`/`move` deliberately (pick any locked grate). Otherwise `recall` or `move` back out."
             end
             case step
             when /Nothing left to explore|no unexplored exits|search halted/i then break
