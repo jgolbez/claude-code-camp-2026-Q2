@@ -1138,14 +1138,14 @@ module Boukensha
             essentials << "your TELEPORTER (buy one ~12 gold at the Reading Room, west of the Temple)" unless have_tp
             essentials << "a lit LIGHT source (wield/hold a candle or torch — you're blind in dark rooms without one)" unless have_light
             stock = []
-            stock << "food (buy a BATCH — ~8-10 bread at a grocer; a single loaf gets eaten fast, so stock up)" unless have_food
-            stock << "water (carry a filled canteen or waterskin)" unless have_drink
+            stock << "FOOD — buy 1 waybread, EAT it, then buy 1 more for the road (waybread fills you completely; a grocer sells it)" unless have_food
+            stock << "WATER — carry a CANTEEN (buy one at the water shop EAST of Market Square if you lack one) and fill it at a fountain" unless have_drink
 
             if essentials.any?
               "NOT READY — missing ESSENTIAL gear: #{essentials.join('; ')}. Get these FIRST, before anywhere dangerous." +
-                (stock.any? ? " (Also worth stocking for a long foray: #{stock.map { |s| s[/\A\w+/] }.join(', ')}.)" : "")
+                (stock.any? ? " (Also provision: #{stock.map { |s| s[/\A\w+/] }.join(', ')}.)" : "")
             elsif stock.any?
-              "Essentials are set (teleporter + light) — you can head out. For a LONG foray, stock a reserve: #{stock.join('; ')}. Buy the batch ONCE, then go — don't keep re-checking (the upkeep eats food as you get hungry, so it won't all sit in your pack)."
+              "Essentials are set (teleporter + light) — you can head out. Provision the rest, ONCE (don't re-check in a loop): #{stock.join('; ')}."
             else
               "Fully provisioned — teleporter, light, food, and water all set. Head out."
             end
