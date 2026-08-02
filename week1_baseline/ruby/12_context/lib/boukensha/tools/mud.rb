@@ -457,12 +457,28 @@ module Boukensha
           end
 
           result   = send_cmd.call(p.move(dir))
-          enriched = remember.call(result, arrived_via: dir)
           body     = MudText.strip_ansi(result).strip
 
+          # A CLOSED (unlocked) door in the frontier? Open it and step through — so
+          # exploration TRAVERSES doors instead of dead-ending at them (needed to map the way
+          # to hidden areas, e.g. a sewer entrance). A LOCKED door/grate can't be forced here,
+          # but it's a real way ON once unlocked — report it (class-agnostic: pick or key) and
+          # do NOT mark it permanently blocked, so the agent can open it and explore again.
+          if body =~ closed_door_re
+            obj   = door_noun.call(body)
+            opres = MudText.strip_ansi(send_cmd.call(p.door("open", obj, direction: dir)))
+            if opres =~ /locked/i
+              return "Explored #{dir} from room ##{before} — a LOCKED #{obj} blocks the way (a locked door/grate often guards a hidden area like the sewer). To get through: `door` action `pick` (needs a lock-picking skill) or `unlock` (needs its key), then explore/move #{dir} again. Left it as a frontier — not marked off-limits."
+            end
+            result = send_cmd.call(p.move(dir))   # opened — step through
+            body   = MudText.strip_ansi(result).strip
+          end
+
+          enriched = remember.call(result, arrived_via: dir)
+
           if world.parse_room(result).nil? || body =~ blocked_re
-            # Bounced (closed door/rock, or not a real direction). Mark this exit
-            # blocked so we don't fixate on it — next explore picks another frontier.
+            # Bounced (a solid wall / not a real direction). Mark this exit blocked so we
+            # don't fixate on it — next explore picks another frontier.
             world.mark_blocked(short, reason: body[/[^\n.]*\b(?:closed|cannot go|can'?t go)[^\n.]*/i])
             return "Explored #{dir} from room ##{before} — blocked (won't retry it): #{body.lines.first&.strip}"
           end
