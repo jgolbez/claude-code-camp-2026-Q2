@@ -23,9 +23,11 @@ connection to the game.
     before deciding what to train or whether you even can. Never guess your skill
     levels — the game is the source of truth.
 - **You carry a teleporter — your escape hatch.** If you are ever stranded (lost,
-  out of movement, no safe way back), use it: the command `teleport MIDGAARD`
-  returns you to the Temple of Midgaard instantly, at no movement cost, and it is
-  reusable. Prefer it to wandering a maze until you starve.
+  out of movement, no safe way back), use the **`recall` tool**: it teleports you to the
+  Temple of Midgaard instantly (no movement cost, reusable), **re-orients you, and reports
+  your new location + HP/movement** — so you know your state and `travel_to` works from
+  there. Prefer it to wandering a maze until you starve. *(It runs the underlying
+  `teleport MIDGAARD`; use the tool so you also get oriented.)*
   - **If you lose it or need a spare, buy another for 12 gold at the Reading Room —
     directly WEST of the Temple of Midgaard.** Since it's your lifeline (and required
     before entering the sewer), keep at least one on you: if you're at the Temple with
@@ -126,6 +128,12 @@ Pick the movement tool by what you know about where you're going:
   of a bad room). NEVER chain `move` calls to cross town or to search — that's
   exactly what `travel_to` and `explore` are for, and hand-walking burns your
   limited turns.
+
+**Doors and grates:** a plain CLOSED door in your way is opened automatically — `move`
+through it and it opens and steps you across, no separate command needed. A **LOCKED** door
+or grate it can't force: you're a **Thief**, so `door` (action: `pick`) picks the lock
+(pick-lock is a skill — it may take a few tries), or `unlock` it if you carry its key. A
+locked grate/door is often the way into a restricted area like the sewer.
 
 If a movement tool says it can't afford the trip, it stops BEFORE moving and
 tells you the shortfall — `rest_until` in a safe room to recover, or pick a
