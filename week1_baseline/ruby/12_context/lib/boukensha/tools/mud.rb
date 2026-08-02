@@ -1117,6 +1117,32 @@ module Boukensha
           end
         end
 
+        registry.tool "provisions",
+          description: "Pre-flight SURVIVAL-KIT check: reports whether you're carrying food, a drink " \
+                       "(water), a lit light source, and your teleporter — the things that keep you alive. " \
+                       "RUN THIS AT THE START of a run, and before any dangerous area (the sewer); if " \
+                       "anything is MISSING, restock it FIRST. Says what's missing and where to get it.",
+          parameters: {} do
+          next guard.call if guard.call
+          begin
+            inv = MudText.strip_ansi(send_cmd.call("inventory").to_s)
+            eq  = MudText.strip_ansi(send_cmd.call("equipment").to_s)
+            kit = {
+              "food"        => [!!(inv =~ food_kw),  "buy rations/bread at a grocer or bakery"],
+              "water/drink" => [!!(inv =~ drink_kw), "carry a filled canteen or waterskin (a tavern, or fill at a fountain)"],
+              "light"       => [!!(eq  =~ /used as light/i), "wield or hold a lit light source (a candle/torch) — you're blind in dark rooms without one"],
+              "teleporter"  => [!!(inv =~ /teleport/i), "buy one for ~12 gold at the Reading Room, west of the Temple"]
+            }
+            missing = kit.reject { |_, (ok, _)| ok }.keys
+            lines   = kit.map { |k, (ok, where)| "  #{ok ? '[have]' : '[MISSING]'} #{k}#{ok ? '' : " — #{where}"}" }
+            head = missing.empty? ? "Fully provisioned — ready to head out." :
+                   "NOT ready: missing #{missing.join(', ')}. Restock these BEFORE anywhere dangerous (the sewer especially)."
+            "#{head}\n#{lines.join("\n")}"
+          rescue MudManager::Session::Error, ArgumentError => e
+            "error checking provisions: #{e.message}"
+          end
+        end
+
         registry.tool "recall",
           description: "Recall (teleport) instantly to the safe Temple of Midgaard — your escape " \
                        "hatch when hurt, stranded, or done in a dangerous area. Reusable, no movement " \
