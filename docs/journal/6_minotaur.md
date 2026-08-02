@@ -265,6 +265,28 @@ is flaky) → **`open` the south door** (find its keyword via `look south`/`exam
 the sewer → `locate` + `scan`-home the minotaur → `consider`/`fight`. The blockers have gone
 from vague ("it roams, it's fast, it's unmapped") to **one shut door + one flaky route**.
 
+### Slice 10 — the newbie→sewer maze is deeper than one door (2026-08-02)
+Traced the route by hand (correct door syntax now: `open <object> <direction>`, e.g.
+`open door south`). It's a layered maze, and each layer was a **red herring** for "the sewer
+entrance":
+- Dirty Hallway (#9) → `open door south` → **A Small Room** (still Newbie Zone).
+- A Small Room → `down` was **"The grate is closed"** → then **"It seems to be locked."**
+- **Perry PICKED the grate** (pick lock is "poor": failed 5×, succeeded on the 6th — *"The lock
+  quickly yields to your skills"*) → `down` → **"The Dark Pit"** — *still the Newbie Zone.*
+So the real "Sewer, First Level" entrance is **still further in** (the agent reached the sewer
+in earlier 300+-move wanders, so a path exists — it's just deep in this door/grate/dark-room
+maze). Perry safe throughout (44/44, never entered combat).
+
+**Honest call — consolidate, don't grind attempt #11.** ~10 approaches in, the pattern is
+clear: the *infrastructure* is right (scan/locate, sewer-chase allowed, safe-park, pick-lock,
+door syntax) and we keep learning the maze, but the newbie→sewer connection is a genuinely
+convoluted lock-and-maze puzzle and the minotaur roams the far side unpredictably. The
+realistic paths to actually landing the kill: **(a)** a dedicated *mapping* pass that fully
+charts the newbie→sewer route (record the grate/door edges so `travel_to` can use them), or
+**(b)** **level Perry up first** — more HP, a trained pick-lock, and ideally the Track skill
+would turn this from a fragile crawl into a routine hunt. The minotaur is a real capstone; at
+L4 with a poor pick-lock it's a bridge too far in one sitting. **Gains banked; catch deferred.**
+
 ---
 
 > **📖 Story thread** — *Prev:* [← 5. Planning](./5_planning.md) · [↑ Overview](./00_summary.md) · *Next:* — **the live edge of the story** (the capstone is in progress)
