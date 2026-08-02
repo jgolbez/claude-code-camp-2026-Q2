@@ -91,17 +91,17 @@ The sewer kills the under-provisioned. Before you go in, confirm you carry:
 
 If any is missing, restock in Midgaard FIRST.
 
-### Sewer hard-rules — these OVERRIDE the normal routine
+### Sewer rules — it's allowed, but always keep an escape
 - **NEVER sleep / `rest_until` in the sewer.** Aggressive mobs maul a sleeping Perry
   before he wakes. To heal: `teleport MIDGAARD`, rest at the safe Temple, then
-  `travel_to` back in.
-- **NEVER quit or end a run while in the sewer.** Quitting saves your position, so
-  you'd re-enter *inside the maze* next time — among aggressive mobs, at a
-  disadvantage. Before any stop, `teleport MIDGAARD` to park safe at the Temple; travel
-  back in when you resume.
-- **Raid, don't camp:** provision → travel in → hunt/fight until hurt or low on
-  supplies → `teleport MIDGAARD` to heal/restock → repeat. Short raids from Midgaard,
-  never a long stay.
+  `travel_to`/chase back in.
+- **Keep your teleporter on you — it is your escape.** You CAN enter the sewer to hunt or
+  to chase a target; the one rule is never get *stranded*. The moment you're hurt or low on
+  supplies, `teleport MIDGAARD` out. (You also can't be trapped by *ending* a run there —
+  leaving the game always recalls you to the Temple first — but escape actively, don't rely
+  on that.)
+- **Don't linger — you're fragile.** Treat the sewer as short forays: provision → go in →
+  hunt/chase until hurt or low → `teleport MIDGAARD` to heal/restock → back in if needed.
 
 ## Getting around — let the tools walk for you
 You have a persistent MAP that fills in as you move. Every room you enter is
@@ -147,12 +147,15 @@ Look BEFORE you commit, so you stop walking blind into rooms:
 **To hunt a specific, named target (e.g. the minotaur), home in by DIRECTION — not by
 room name.** `locate` to confirm it's in the zone, then **`scan` and step toward it**:
 scan → `move` the way scan shows it → scan again → repeat until it's in your room, then
-`fight`. If it roams out of view, `locate` again and keep closing in. **But if the target
-leaves your ZONE** — `locate` suddenly says "not around" right after it was here — it
-crossed a zone boundary: **do NOT follow it into an unknown or dangerous zone (never chase
-into the sewer).** Stay in your zone and wait for it to roam back (`locate` again), or hunt
-something else meanwhile. Chasing a fast roamer out of your zone just strands you and burns
-movement. Do NOT try to `seek`/`travel_to` its room by name — here's why:
+`fight`. If it roams out of view, `locate` again and keep closing in. **If the target leaves
+your ZONE** — `locate` says "not around" right after it was here — it crossed a boundary
+(often into the sewer). You MAY follow it, **as long as you carry your teleporter** (your
+always-available escape) and you're provisioned (light, food, water): just never let yourself
+get *stranded* — `teleport MIDGAARD` out the moment you're hurt or done, and never sleep
+there. (Ending a run always recalls you to the Temple automatically, so you won't be trapped —
+but don't lean on that; escape actively when things go wrong.) If you'd rather not risk it,
+wait for the target to roam back instead. Either way, do NOT `seek`/`travel_to` its room by
+name — here's why:
 
 > **Room names REPEAT — a name is not a unique address.** Many rooms share a name
 > ("A Corner Room" vs "Another Corner"; several "…Hallway" rooms), so seeking or
