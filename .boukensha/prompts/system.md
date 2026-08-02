@@ -68,11 +68,11 @@ thinking terse.
 - **`steal` is your signature but it's risky** and useless until practiced: a
   failed steal makes the mark attack, often fatal. Prefer sleeping/weak marks;
   practice first.
-- **Provision — check FIRST, at the start of every run.** Before you head anywhere, run
-  **`provisions`**: it reports your survival kit (food, water, light, teleporter) and what's
-  MISSING. If anything's missing, **restock it before you set out** (buy food/water/light,
-  grab a teleporter from the Reading Room) — don't discover mid-sewer that you have no food.
-  Also `rent` at an inn or `bank` your gold so death doesn't cost everything.
+- **Provision — check FIRST, at the start of every run.** Run **`provisions`**. Two tiers:
+  your **teleporter and a lit light are ESSENTIAL** (never enter the sewer/dark without them —
+  get them first); **food and water are a reserve to STOCK** for a long foray. When you buy
+  food, buy a **BATCH** (one loaf gets eaten fast as you get hungry) — then **head out; do NOT
+  re-check and re-buy in a loop.** Also `rent`/`bank` your gold so death doesn't cost everything.
 
 ## Zone index — where to hunt, by level
 Match the zone to your level. `consider` on arrival to confirm a zone still fits you —

@@ -1118,26 +1118,37 @@ module Boukensha
         end
 
         registry.tool "provisions",
-          description: "Pre-flight SURVIVAL-KIT check: reports whether you're carrying food, a drink " \
-                       "(water), a lit light source, and your teleporter — the things that keep you alive. " \
-                       "RUN THIS AT THE START of a run, and before any dangerous area (the sewer); if " \
-                       "anything is MISSING, restock it FIRST. Says what's missing and where to get it.",
+          description: "Pre-flight SURVIVAL-KIT check. Two tiers: your TELEPORTER and a lit LIGHT source " \
+                       "are ESSENTIAL — never enter a dark/dangerous area without them. FOOD and WATER are " \
+                       "a reserve to STOCK for a long foray (you eat/drink them as you get hungry). Run at " \
+                       "the start of a run and before the sewer; get missing essentials, stock a BATCH of " \
+                       "food/water if going far, then HEAD OUT — don't re-check in a loop.",
           parameters: {} do
           next guard.call if guard.call
           begin
+            session.drain; sleep 0.15; session.drain   # fresh reads (avoid a stale-buffer inventory)
             inv = MudText.strip_ansi(send_cmd.call("inventory").to_s)
             eq  = MudText.strip_ansi(send_cmd.call("equipment").to_s)
-            kit = {
-              "food"        => [!!(inv =~ food_kw),  "buy rations/bread at a grocer or bakery"],
-              "water/drink" => [!!(inv =~ drink_kw), "carry a filled canteen or waterskin (a tavern, or fill at a fountain)"],
-              "light"       => [!!(eq  =~ /used as light/i), "wield or hold a lit light source (a candle/torch) — you're blind in dark rooms without one"],
-              "teleporter"  => [!!(inv =~ /teleport/i), "buy one for ~12 gold at the Reading Room, west of the Temple"]
-            }
-            missing = kit.reject { |_, (ok, _)| ok }.keys
-            lines   = kit.map { |k, (ok, where)| "  #{ok ? '[have]' : '[MISSING]'} #{k}#{ok ? '' : " — #{where}"}" }
-            head = missing.empty? ? "Fully provisioned — ready to head out." :
-                   "NOT ready: missing #{missing.join(', ')}. Restock these BEFORE anywhere dangerous (the sewer especially)."
-            "#{head}\n#{lines.join("\n")}"
+            have_tp    = !!(inv =~ /teleport/i)
+            have_light = !!(eq  =~ /used as light/i)
+            have_food  = !!(inv =~ food_kw)
+            have_drink = !!(inv =~ drink_kw)
+
+            essentials = []
+            essentials << "your TELEPORTER (buy one ~12 gold at the Reading Room, west of the Temple)" unless have_tp
+            essentials << "a lit LIGHT source (wield/hold a candle or torch — you're blind in dark rooms without one)" unless have_light
+            stock = []
+            stock << "food (buy a BATCH — ~8-10 bread at a grocer; a single loaf gets eaten fast, so stock up)" unless have_food
+            stock << "water (carry a filled canteen or waterskin)" unless have_drink
+
+            if essentials.any?
+              "NOT READY — missing ESSENTIAL gear: #{essentials.join('; ')}. Get these FIRST, before anywhere dangerous." +
+                (stock.any? ? " (Also worth stocking for a long foray: #{stock.map { |s| s[/\A\w+/] }.join(', ')}.)" : "")
+            elsif stock.any?
+              "Essentials are set (teleporter + light) — you can head out. For a LONG foray, stock a reserve: #{stock.join('; ')}. Buy the batch ONCE, then go — don't keep re-checking (the upkeep eats food as you get hungry, so it won't all sit in your pack)."
+            else
+              "Fully provisioned — teleporter, light, food, and water all set. Head out."
+            end
           rescue MudManager::Session::Error, ArgumentError => e
             "error checking provisions: #{e.message}"
           end
