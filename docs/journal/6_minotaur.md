@@ -244,6 +244,27 @@ minotaur runs just re-exposed Perry; now the net holds. The minotaur itself incr
 **level-up-first** target (its wide cross-zone roam is hard to hold at L4), or one needing a
 mapped route into its corridor cluster.
 
+### Slice 9 — sewer chasing enabled; the entrance is a CLOSED DOOR (2026-08-02)
+Corrected the over-strict rule: **entering/chasing into the sewer is allowed** — the invariant
+is *never be stranded*, guaranteed by the teleporter (live escape) + run-end safe-park — only
+*sleeping* there stays forbidden. Prompt + [[mud-grind-locations]] updated. Then ran a pursuit:
+- **The safe-park fix validated live:** Perry ended the run **safe in the Newbie Zone**, not
+  stranded — the stale-`where` fix holds under a real agent run.
+- **Breakthrough finding:** the minotaur was in the sewer (`locate` said "not in zone" from the
+  newbie side), and the agent located the **sewer entrance — a CLOSED DOOR, south from "The
+  Dirty Hallway" (#9)** ("noises behind the door to the south"). *This explains the whole
+  "sewer is disconnected in the map" saga:* `travel_to`/`seek` stop at closed doors, so the
+  route was **shut, not missing**. The sewer subgraph floated free because nothing had opened
+  and walked the door.
+- **Remaining obstacle:** couldn't reliably `travel_to "The Dirty Hallway"` from the Temple in
+  a follow-up diagnostic (Perry stayed parked at the Temple — a position-sync / Temple map-node
+  flakiness, likely the old [[mud-room-fingerprint-collision]]). So the door wasn't opened yet.
+
+**Concrete path now (much clearer than before):** reach #9 (via manual N-moves if `travel_to`
+is flaky) → **`open` the south door** (find its keyword via `look south`/`examine`) → step into
+the sewer → `locate` + `scan`-home the minotaur → `consider`/`fight`. The blockers have gone
+from vague ("it roams, it's fast, it's unmapped") to **one shut door + one flaky route**.
+
 ---
 
 > **📖 Story thread** — *Prev:* [← 5. Planning](./5_planning.md) · [↑ Overview](./00_summary.md) · *Next:* — **the live edge of the story** (the capstone is in progress)
