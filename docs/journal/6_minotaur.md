@@ -340,6 +340,82 @@ until you know which file it came from.* Recall and `travel_to` were never broke
 launch-directory footgun was impersonating a nav bug. It's now closed in code, surfaced in the
 logs, and pinned by tests — the first safety net under boukensha's own machinery, not just Perry's.
 
+### Slice 13 — the minotaur, found and *considered*: the toolkit is validated, the blocker is the character (2026-08-03)
+Two firsts this slice, and together they close the long-open question of *whether the machinery
+works* — separate from *whether Perry is strong enough yet.*
+
+First, a **brittleness test of the navigation stack**: I backed up the real 139-room map
+(checksum-verified), **wiped it to zero rooms**, and ran a live explore turn. Three layers passed:
+the load announce fired the loud *"no existing map — starting a fresh one"* warning (exactly the
+signal Slice 12 added); the live agent rebuilt **0 → 24 rooms** with zero exceptions, walking
+outward by `look`/`move`; and a unit-level probe confirmed `route_to` / `resolve_destination` /
+`fp_for_id` all **degrade to `nil` instead of raising** on an empty map. That last property is now
+pinned by a new test file (`world_model_empty_map_test.rb`, suite up to 13 tests / 27 assertions).
+The map was restored, checksum identical. **Navigation does not assume a populated world** — proven
+by hand *and* guarded permanently.
+
+Then, the **minotaur itself** — the capstone target — was finally run to a clean decision:
+- `locate minotaur` pinned it **on the first try** to *The Statue's Room* (#128). The "can't catch
+  it" era is over; it was always spawn-timing, and when it's up, the tracking finds it.
+- Perry `travel_to`'d straight there and `consider`'d it. Verdict: **"You would need a lot of luck
+  and great equipment!"** — CircleMUD's line for a mob well above your weight class. **Dangerous.**
+- The minotaur is **aggressive** — it swung the instant Perry entered (took 3 HP from presence), so
+  the clean-backstab opener was never available.
+- The **go/no-go gate held under live fire**: the agent refused the fight, `flee`'d east, and Perry
+  walked away **HP 41/44, teleporter + canteen intact, 0 deaths.**
+
+So the honest conclusion: **the toolkit is validated end-to-end on the hardest target in the zone.**
+Hunting/tracking finds the minotaur; `consider` reads the danger correctly; the combat gate keeps
+Perry alive when the answer is "no." The remaining blocker is not code — it's **the character**:
+at L4 the minotaur is a raw power gap. Perry sits **784 XP from L5**; the path forward is
+progression (level, and likely better gear), then re-`consider` after each step until the verdict
+softens from "luck and great equipment" toward "even."
+
+**Open problem — weapon efficacy is unobservable.** Leveling is measurable; *gear* is not. The MUD
+gives no built-in way to compare two weapons' damage output (damage dice are hidden; only the type —
+pierce/bludge/slash — is visible). Candidate answers to chase next slice: (a) an `identify`
+scroll/spell to read a weapon's dice directly, or (b) an **empirical damage-sampler tool** — wield
+each candidate, hit a known weak mob N times, parse the damage verbs/numbers, and rank by observed
+mean. Option (b) fits boukensha's philosophy (offload the mechanic to a deterministic tool) and
+would make "is this sword better?" a *measurement*, not a guess.
+
+### Slice 14 — 🏆 CAPSTONE: Perry kills the minotaur and dings Level 5 (2026-08-03)
+The goal the whole bootcamp pointed at — **an LLM agent kills the minotaur** — is done. And the way
+it happened is more interesting (and more honest) than the tidy version I first read off the log.
+
+The run's real job was just to close the last **784 XP to L5**, then *read* (not fight) the minotaur
+at the new level. Perry ground one easy mob (+217 XP), and while hunting for the next, **the
+minotaur — an aggressive roamer — wandered in and jumped him.** He tried to `flee` and got
+*"PANIC! You couldn't escape!"* — i.e. he was already locked in melee. So he stood and traded:
+three `fight` calls of auto-combat rounds, HP 44 → 29 → **kill on the third, +161 XP → LEVEL 5**,
+ending 17/53 HP. He then did the disciplined thing — retreated to safe rooms, rested to 46/53,
+walked back, and `consider`'d a *respawned* minotaur: verdict now **"You would need a lot of luck!"**
+(softened from L4's "luck *and great equipment*", but still flagged risky). **Zero deaths, gear and
+teleporter intact throughout.**
+
+Two things this taught us, both worth keeping:
+
+- **`consider`'s danger tiers are conservative, not absolute.** "Luck and great equipment" did NOT
+  mean *unwinnable* — it meant *RNG-dependent*. Perry won a straight L4→5 slugfest. So the safety
+  gate is honestly a *floor* ("don't pick this fight on purpose"), not a verdict that the fight is
+  unloseable-or-unwinnable. Good calibration for how much to trust it.
+- **A real reporting bug, found by asking "wait, how did he backstab three times?"** He didn't. In
+  CircleMUD you can't backstab a target you're already fighting — yet the `fight` tool labelled all
+  three rounds *"backstab landed (fair)."* Root cause: the opener sends `backstab`, then *infers* it
+  landed from the **absence** of a reject line — and during combat spam the reject
+  (*"...a fighting person -- they're too alert!"*) got read past. The fix (in `tools/mud.rb`): detect
+  *already-in-combat up front* (via `score` + the pre-command drain) and skip the opener entirely
+  with an honest *"target already engaged — plain attack"*; plus harden the reject read and widen its
+  regex to the real message. So the tool now reports what actually happened instead of a hopeful
+  default. (It never affected outcomes — purely a truthfulness fix for the agent's own reasoning and
+  our logs. Still-open: the *fight* path has no unit test yet; the map layer does — that seam is the
+  next test to build.)
+
+**The honest headline:** the capstone is cleared. The agent found the boss on command, was ambushed
+by it, and *out-fought* it to a level — surviving, looting, and re-assessing afterward — exactly the
+loop the whole harness was built to run. What's left is polish (better gear via the weapon-sampler
+tool; a test around the fight opener), not the goal.
+
 ---
 
-> **📖 Story thread** — *Prev:* [← 5. Planning](./5_planning.md) · [↑ Overview](./00_summary.md) · *Next:* — **the live edge of the story** (capstone in progress; boukensha now has its first test suite)
+> **📖 Story thread** — *Prev:* [← 5. Planning](./5_planning.md) · [↑ Overview](./00_summary.md) · *Next:* — 🏆 **CAPSTONE CLEARED**: the agent killed the minotaur and reached L5 (out-meleed after an ambush; `consider` proved conservative; fixed a backstab-mislabel in the fight tool). Remaining is polish — a weapon-efficacy sampler and a unit test around the fight opener.

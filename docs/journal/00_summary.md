@@ -112,10 +112,22 @@ combat is offloadable; the one world-model carried navigation, combat, survival,
 and planning; **offload extends to the model tier**). The persistent surprise stayed true to
 the end: **the limiter is almost always navigation/finding** — the combat arc kept reaching
 back into it, and the capstone reduces to it too (finding and *holding* a fast roamer).
-Planning's one real bug (link-dead between runs) is fixed. **The live edge of the story is the
-capstone**: the toolkit finds the minotaur on command, but catching a cross-zone roamer for
-the kill is the open problem — the same "remembering and finding where the fighting is" theme,
-one turn of the screw harder. Parked follow-ups (in the detail entries): the parse_room
+Planning's one real bug (link-dead between runs) is fixed. **🏆 The capstone is cleared: the agent
+killed the minotaur and reached Level 5.** The arc went "can we find it?" → "is the character strong
+enough?" → *done*: the toolkit `locate`s the boss on the first try and `travel_to`s to it; at L4 the
+go/no-go gate correctly refused an *initiated* fight (*"luck and great equipment"* = dangerous) and
+Perry fled with full gear; then, closing the last 784 XP to L5, the aggressive minotaur **ambushed**
+him mid-hunt and he **out-meleed it to the level** — surviving at 17/53 HP, looting, retreating to
+rest, and re-assessing (a respawned minotaur now reads *"a lot of luck"*), all with **zero deaths**.
+Two lessons banked: (1) `consider`'s danger tiers are **conservative, not absolute** — "dangerous"
+meant *RNG-dependent*, not unwinnable, so the gate is a sane floor rather than an oracle; (2) asking
+*"how did he backstab three times?"* surfaced a **reporting bug** — the `fight` tool inferred a
+landed backstab from the *absence* of a reject line, and combat spam hid the reject; now fixed
+(detect already-in-combat up front, skip the impossible opener, harden the read). What remains is
+**polish, not the goal**: the one open mechanic is **weapon efficacy is unobservable** — the MUD
+exposes damage *type* but hides damage *dice*, so "is this sword better?" needs an `identify` read or
+an empirical damage-sampler tool (wield, hit a weak mob N times, rank by observed mean); and the
+*fight* path still wants a unit test (the map layer already has one). Parked follow-ups (in the detail entries): the parse_room
 parens/fingerprint migration is superseded by door-stable identity; a bounded nearby explore
 so a single grind spot isn't respawn-bound; disambiguating name-based `travel_to`/`seek`
 (room names repeat); and camp/intercept tactics for the roaming boss. One more closed en

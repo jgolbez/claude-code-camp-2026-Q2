@@ -784,7 +784,12 @@ module Boukensha
             maxhp: (s =~ /(\d+)\((\d+)\)\s+hit/i) ? Regexp.last_match(2).to_i : nil,
             xp:    s[/have\s+(\d+)\s+exp/i, 1]&.to_i,
             need:  s[/need\s+(\d+)\s+exp/i, 1]&.to_i,
-            level: s[/\(level\s+(\d+)\)/i, 1]&.to_i
+            level: s[/\(level\s+(\d+)\)/i, 1]&.to_i,
+            # Already locked in melee? score can say so, and the text drained just
+            # before the score command catches incoming attack spam. Either signal ⇒
+            # a backstab opener is impossible (you can't backstab mid-fight), so the
+            # fight tool must NOT report one. See the opener guard below.
+            fighting: !!(s =~ /you are fighting/i || MudText.strip_ansi(last_drained) =~ combat_re)
           }
         end
 
@@ -831,7 +836,15 @@ module Boukensha
           swapped = false
           main_kw = nil
           opener, prof = Boukensha::Skills.openers(load_skills.call[:skills]).first
-          if opener == "backstab"
+          if opener == "backstab" && before[:fighting]
+            # You CANNOT backstab from inside an ongoing fight (CircleMUD refuses:
+            # "you can't backstab a fighting person"). When an aggressive roamer has
+            # already engaged Perry, sending backstab anyway — and then missing the
+            # reject line in the combat spam — is exactly what used to mislabel a
+            # plain melee round as "backstab landed". Detect it up front and skip
+            # straight to the slugfest, honestly.
+            opener_note = "target already engaged — plain attack (no backstab mid-fight)"
+          elsif opener == "backstab"
             pierce_fail = /piercing weapon|only.*(?:pierc|stab)/i
             attempt = -> { MudText.strip_ansi(send_cmd.call(p.skill_strike("backstab", tgt))) }
 
@@ -848,13 +861,17 @@ module Boukensha
                 bs = attempt.call
               end
             end
+            # A reject line ("...a fighting person -- they're too alert!") can lag a
+            # beat behind the prompt amid combat spam; read a touch more so a rejected
+            # opener is never misread as a landed one.
+            bs = bs.to_s + MudText.strip_ansi(session.read_until_quiet(0.6, timeout: 2).to_s)
 
             if bs =~ pierce_fail
               opener_note = "backstab (#{prof}) — no piercing weapon available, plain attack"
             elsif bs =~ /they aren'?t here|no ?one (?:by that|here)|isn'?t here/i
               send_cmd.call(p.equip("wield", main_kw)) if swapped && main_kw
               return "'#{tgt}' is gone — nothing to fight now."
-            elsif bs =~ /can'?t backstab.*fight|already fighting|while .*fighting/i
+            elsif bs =~ /can'?t backstab.*(?:fight|alert)|a fighting person|already fighting|while .*fighting/i
               opener_note = "target already engaged — plain attack"
             else
               struck      = true

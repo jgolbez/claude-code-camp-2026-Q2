@@ -88,6 +88,7 @@ What's covered so far (grown out of the "stray map" debugging — see
 | `world_model_default_path_test.rb` | Map-path resolution: `BOUKENSHA_DIR` wins; otherwise **walk up to the nearest `.boukensha/world.json`** instead of forking a stray map at `Dir.pwd`. |
 | `world_model_load_announce_test.rb` | The load-time log line (`world map: <path> (<n> rooms)`) and the loud warning when a *fresh/empty* map is started — the signal that catches a wrong launch directory. |
 | `world_model_routing_test.rb` | `route_to` / `resolve_destination` over duplicate room names — resolve must pick the **reachable** twin, `route_to` nils the orphan. |
+| `world_model_empty_map_test.rb` | Brittleness guard: on a **0-room / freshly-wiped map**, `route_to` / `resolve_destination` / `fp_for_id` all degrade to `nil` instead of raising — navigation never assumes a populated world. |
 
 **Convention:** every test uses the `with_isolated_env` helper (in `test/test_helper.rb`),
 which runs in a throwaway tmpdir with `BOUKENSHA_DIR` cleared and restores cwd + env
