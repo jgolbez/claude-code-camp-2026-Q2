@@ -127,7 +127,19 @@ module Boukensha
               # short sleep lets in-flight bytes arrive so the second drain clears them.
               session.drain; sleep 0.2; session.drain
               zone = MudText.strip_ansi(send_cmd.call("where"))[/Players in ([^\n.]+)/i, 1].to_s.strip
-              send_cmd.call("teleport MIDGAARD") unless safe_to_quit_here.call(zone)
+              unless safe_to_quit_here.call(zone)
+                send_cmd.call("teleport MIDGAARD")
+                # Verify the park actually happened. Without a teleporter the MUD just
+                # says "Huh!?!" and we would quit-save the character inside the very
+                # zone this guard exists to get it out of — silently. Loud is better:
+                # nothing here can rescue it, but the operator must not be misled.
+                session.drain; sleep 0.2; session.drain
+                after = MudText.strip_ansi(send_cmd.call("where"))[/Players in ([^\n.]+)/i, 1].to_s.strip
+                unless safe_to_quit_here.call(after)
+                  warn "[boukensha] SAFE-PARK FAILED: still in #{after.inspect} (teleport needs a teleporter item). " \
+                       "Quitting in place — this character will log back in inside that zone."
+                end
+              end
             rescue StandardError => e
               warn "[quit_cleanly DEBUG] safe-park raised: #{e.class}: #{e.message}"
             end
@@ -180,6 +192,9 @@ module Boukensha
         # can be POISONED — Perry once ate looted meat and poison-drained his HP (it
         # even read as "dangerous area"). Never auto-eat those; the agent can still
         # eat them deliberately with consume_item if it truly means to.
+        # Things that count as a WEAPON when looted or carried. Bare-handed damage is
+        # miserable, so noticing one of these matters as much as the xp on the corpse.
+        weapon_kw   = /\b(sword|dagger|mace|club|axe|spear|staff|whip|blade|hammer|flail|knife|scimitar|katana|halberd|trident|rapier|sabre|saber|pike|lance|morningstar|quarterstaff|bardiche|glaive)\b/i
         food_kw     = /\b(bread|loaf|waybread|ration|biscuit|hardtack|cheese|apple|banana|fruit)\b/i
         risky_food  = /\b(meat|steak|flesh|fish|mushroom|corpse|carcass)\b/i
         drink_kw    = /\b(waterskin|flask|canteen|bottle|jug)\b/i
@@ -205,6 +220,71 @@ module Boukensha
               "nearest #{kind} source is #{room['name']} (##{room['id']}) — travel_to it (route #{rt.join(',')}, ≈#{est[:total]} movement), then #{action}."
             end
           end
+        end
+
+        # What we're currently wielding, or nil when bare-handed. CircleMUD prints the
+        # worn/wielded list as "<wielded>            a long sword".
+        wielded = lambda do
+          eq = MudText.strip_ansi(send_cmd.call(p.info_self("equipment")).to_s)
+          w  = eq[/<wielded>\s*(.+)$/i, 1]
+          w = nil if w.to_s.strip.empty? || w.to_s =~ /nothing/i
+          w&.strip
+        rescue StandardError
+          nil
+        end
+
+        # ── Housekeeping: a periodic status sweep that ADDS actions, never blocks ──
+        # Provisioning and gear are background concerns. Gating combat on them
+        # deadlocked a broke character; ignoring them entirely leaves one punching
+        # mobs while starving. So every few tool calls we look at the character's
+        # actual condition and append concrete next actions to whatever tool result
+        # the agent is about to read. Fixing what we can silently (wield a carried
+        # weapon), naming the rest.
+        hk_counter = 0
+        hk_every   = 6
+        housekeeping = lambda do |force: false|
+          hk_counter += 1
+          return nil unless force || (hk_counter % hk_every).zero?
+          return nil if upkeep_busy
+
+          upkeep_busy = true
+          notes = []
+          begin
+            inv = MudText.strip_ansi(send_cmd.call(p.info_self("inventory")).to_s)
+            sc  = MudText.strip_ansi(send_cmd.call(p.info_self("score")).to_s)
+
+            # 1. Are we actually armed? If a weapon is in the pack, just wield it.
+            if wielded.call.nil?
+              if (carried = inv[weapon_kw])
+                res = MudText.strip_ansi(send_cmd.call(p.equip("wield", carried.downcase)).to_s)
+                notes << (res =~ /you wield|you start using/i ?
+                  "[upkeep] you were BARE-HANDED → wielded the #{carried.downcase} you were carrying." :
+                  "[upkeep] BARE-HANDED and the #{carried.downcase} won't wield — check `equipment`.")
+              else
+                notes << "[upkeep] you are fighting BARE-HANDED — no weapon wielded or carried. " \
+                         "Bare fists do poor damage: loot one from a corpse, or `shop` for the cheapest weapon you can afford."
+              end
+            end
+
+            # 2. Supplies. NOT a blocker on hunting — just the next errand, with the
+            #    cheapest route to fixing it named.
+            need = []
+            need << "FOOD"  unless inv =~ food_kw
+            need << "WATER" unless inv =~ drink_kw
+            if !need.empty? && (sc =~ /you are hungry|you are thirsty/i || force)
+              hint = inv =~ /teleport/i ?
+                "You carry a teleporter: `recall` to the Temple, buy what's missing nearby, then `travel_to` back to your grind spot." :
+                "Head back to town to buy them when convenient."
+              carrying_risky = inv =~ risky_food ? " (the meat you carry is NOT safe food — don't count it.)" : ""
+              notes << "[upkeep] hungry/thirsty and missing #{need.join(' + ')}#{carrying_risky} — " \
+                       "this blocks HP regen, so resting is slow until it's fixed. #{hint} Keep hunting meanwhile."
+            end
+          rescue StandardError => e
+            warn "[boukensha] housekeeping error: #{e.message}"
+          ensure
+            upkeep_busy = false
+          end
+          notes.empty? ? nil : notes.join("\n")
         end
 
         upkeep = lambda do |text|
@@ -293,17 +373,31 @@ module Boukensha
           # dropped on revisits unless `full`) to keep token cost down; `note`
           # is non-nil exactly when this was a room block. Non-room text (errors,
           # blocked moves) is only ANSI-stripped so nothing meaningful is lost.
-          body = note ? world.distill(text, full: full) : MudText.strip_ansi(text)
-          [body, note, up].compact.join("\n")
+          # `note` is non-nil for a room block AND for an unlit room. distill returns nil
+          # for the latter (there's no block to distil), so fall back to the raw text
+          # rather than dropping the body and leaving only a [memory] line.
+          body = (note && world.distill(text, full: full)) || MudText.strip_ansi(text)
+          # Periodic status sweep rides along with the result the agent is about to
+          # read — the "check gear and supplies" job nobody remembers to do by hand.
+          hk = begin
+            housekeeping.call
+          rescue StandardError
+            nil
+          end
+          [body, note, up, hk].compact.join("\n")
         end
 
         # Establish "you are here" by looking once and feeding it to the
         # world-model, so travel_to/explore work on the FIRST action of a session
         # (route_to needs a current room; without this it's nil until the agent
         # happens to look). Silent — the result is not returned to the agent.
-        orient = lambda do
+        # `moved:` tells the world-model whether this look follows a POSITION CHANGE
+        # (a teleport) or is just "where am I". It only matters when the room can't be
+        # read: after a move, an unreadable room means position is unknown; standing
+        # still in the dark (nightfall) it means nothing but "can't map right now".
+        orient = lambda do |moved: false|
           begin
-            world.observe(send_cmd.call(p.look))
+            world.observe(send_cmd.call(p.look), moved: moved)
           rescue StandardError => e
             warn "[boukensha] orient failed: #{e.message}"
           end
@@ -320,9 +414,34 @@ module Boukensha
         # Recall to the Temple AND re-orient — sync the map to our new position so a
         # follow-up travel_to plans from where we ACTUALLY are. A raw teleport leaves the
         # world-model thinking we're still where we left (the travel_to-after-teleport bug).
+        #
+        # VERIFY, never assume. `teleport` is granted by a carried teleporter — not by
+        # class, not by level. A character without one gets "Huh!?!" and does not move an
+        # inch. Reporting a recall we did not perform is worse than not having one: it
+        # told a stranded, blind character it was "Safe — standing by" in a room it had
+        # never been in. So we check where we actually ended up and return the truth.
+        # Returns true only when we are demonstrably standing in the Temple.
+        temple_re = /temple\s+of\s+midgaard/i
         recall_safe = lambda do
           send_cmd.call("teleport MIDGAARD")
-          orient.call
+          # The teleport replies "You attempt to manipulate space and time." and ends its
+          # prompt THERE — the destination room block is pushed a moment later, async.
+          # Without flushing it, the next read hands back that stale block and orient
+          # mis-syncs, which made a perfectly good recall look like a failure. Same
+          # hazard, same remedy as the safe-park in quit_cleanly.
+          session.drain; sleep 0.25; session.drain
+          orient.call(moved: true)
+          # orient just re-read the room; if it couldn't (unlit), current_id is nil and
+          # this is correctly false — we cannot claim a recall we cannot see.
+          world.name_for_id(world.current_id).to_s =~ temple_re ? true : false
+        end
+
+        # One phrasing for "the teleport didn't happen", used everywhere we relied on it.
+        recall_failed_note = lambda do
+          here = world.current_id ? "room ##{world.current_id} (#{world.name_for_id(world.current_id)})" : "an unmapped/unlit room"
+          "RECALL FAILED — you did not move. `teleport MIDGAARD` needs a teleporter in your " \
+          "inventory (it is an ITEM, not a class power) and you don't have one. You are still in " \
+          "#{here}. Walk out on your own feet: travel_to a known room, or retrace your steps."
         end
 
         # Current zone name (e.g. "Newbie Zone") read live via `where`. The map itself does
@@ -367,6 +486,16 @@ module Boukensha
             result = send_cmd.call(p.move(dir))
             world.observe(result, arrived_via: dir)
             body   = MudText.strip_ansi(result).strip
+
+            # Walked into an unlit room: the step happened, but the route can't be
+            # verified from here and the map is paused. Stop and say so — do NOT call it
+            # a block, and do NOT keep walking a plan we can no longer confirm.
+            if world.dark?
+              walked << dir
+              return [walked, "Stopped after #{walked.join(' → ')}: that step landed in an UNLIT room (pitch black). " \
+                              "You did move, but nothing can be identified, so your position is unknown and the rest of " \
+                              "the route can't be walked. Step #{opp_dir[dir.to_s[0]] || 'back'} to retrace, or light a light source."]
+            end
 
             if world.parse_room(result).nil? || body =~ blocked_re
               return [walked, "Stopped: move #{dir} was blocked after #{walked.empty? ? 'no moves' : walked.join(' → ')}.\n#{body}"]
@@ -487,6 +616,19 @@ module Boukensha
 
           enriched = remember.call(result, arrived_via: dir)
 
+          # An UNLIT room is not a bounce — the step SUCCEEDED, we just can't read where
+          # we are. Treating it as "blocked" once closed off a perfectly good well and
+          # left the agent convinced it hadn't moved. Mark the exit so explore doesn't
+          # fixate on a frontier it can never map, but say what really happened and
+          # steer back out, because position is now unknown.
+          if world.dark?
+            world.mark_blocked(short, from_fp: world.fp_for_id(before), reason: "too dark to map (needs a light)")
+            return "Explored #{dir} from room ##{before} — you DID move, into an unlit room, and it's pitch " \
+                   "black: nothing can be identified or mapped, so your position is now unknown. Step " \
+                   "#{opp_dir[norm] || 'back'} to return to room ##{before}. Come back with a lit light source if " \
+                   "you want this area mapped; until then that exit is left off the frontier."
+          end
+
           if world.parse_room(result).nil? || body =~ blocked_re
             # Bounced (a solid wall / not a real direction). Mark this exit blocked so we
             # don't fixate on it — next explore picks another frontier.
@@ -498,8 +640,9 @@ module Boukensha
             # Stepped into a DEATH TRAP (Mid-Air etc.) that zeroed HP — usually no
             # way back. Mark the exit off-limits and teleport out immediately.
             world.mark_blocked(short, from_fp: world.fp_for_id(before), reason: "DEATH TRAP")
-            send_cmd.call("teleport MIDGAARD")
-            return "Explored #{dir} from room ##{before} into a DEATH TRAP (#{body.lines.first&.strip}) — it zeroes your HP. Teleported you out, marked that exit off-limits forever. Rest to recover."
+            escaped = recall_safe.call
+            return "Explored #{dir} from room ##{before} into a DEATH TRAP (#{body.lines.first&.strip}) — it zeroes your HP. Marked that exit off-limits forever. " +
+                   (escaped ? "Teleported you out. Rest to recover." : "#{recall_failed_note.call} Rest only once you are somewhere safe.")
           end
 
           if body =~ overlevel_re
@@ -518,6 +661,14 @@ module Boukensha
 
         # Classify a `consider` rating: :safe (go), :even (perfect match — only at
         # full HP), :unsafe (needs luck / mad / death — skip), :miss (no such mob).
+        # The COMPLETE set of replies do_consider can produce (tbaMUD
+        # src/act.informative.c). Anything not on this list is NOT a rating — it's
+        # combat spam or another command's output that landed in our read. We match
+        # against the real strings so we can tell "the MUD rated the mob" apart from
+        # "we read the wrong line", which the old code could not do.
+        # (No /x flag — extended mode would strip the literal spaces in these phrases.)
+        consider_reply = /consider killing who|very easy indeed|cross and a shovel|where did that chicken go|do it with a needle|\beasy\b|fairly easy|perfect match|need some luck|a lot of luck|feel lucky, punk|are you mad|you are mad/i
+
         consider_tier = lambda do |rating|
           t = rating.to_s.downcase
           return :miss   if t =~ /consider killing who|no ?one (?:by that|is here|here)|aren'?t (?:fighting|here)|isn'?t here|can'?t find|not here/
@@ -527,26 +678,62 @@ module Boukensha
           :unsafe                              # a lot of luck / feel lucky / mad / death
         end
 
+        # Ask the MUD to rate a mob and return [rating_line, tier] — or [raw, nil]
+        # when no line in the reply is a rating at all.
+        #
+        # Two hazards this exists to survive, both seen live:
+        #   * MID-FIGHT the auto-rounds interleave with our command, so the FIRST
+        #     line back is combat spam ("You pierce the sewer rat."). The old code
+        #     took line 1 blindly; consider_tier's conservative fallthrough then
+        #     rated that :unsafe and `fight` REFUSED a mob already attacking us. The
+        #     agent's only out was `flee` — which in tbaMUD costs experience
+        #     (do_flee: gain_exp(ch, -loss)), so the misread actively drained xp.
+        #   * Stale bytes from the previous command can lead the buffer, same as the
+        #     post-teleport read. Flush before asking.
+        consider_read = lambda do |target|
+          session.drain; sleep 0.15; session.drain
+          raw   = MudText.strip_ansi(send_cmd.call(p.consider(target)).to_s)
+          line  = raw.lines.map(&:strip).find { |l| l =~ consider_reply }
+          line ? [line, consider_tier.call(line)] : [raw.strip, nil]
+        end
+
         # Perry is in top condition to take a calculated risk: full-ish HP, movement
         # in hand (can flee/travel), and carrying food AND water (hunger/thirst won't
         # bite mid-fight). Gate the riskier tiers (:even, :risky) on this.
-        good_condition = lambda do
+        # Are we in shape to take a real fight? Two DIFFERENT questions, deliberately
+        # kept apart:
+        #
+        #   :ready    — full-ish HP and able to move. This is a genuine combat veto:
+        #               fighting hurt is how characters die, and resting fixes it.
+        #   :supplied — carrying food AND water. This is a PROVISIONING GOAL, not a
+        #               combat requirement. Bundling it into the veto deadlocked a
+        #               broke character completely: no gold → no food → every
+        #               "perfect match"/"some luck" mob refused → no kills → no gold.
+        #               A fresh character could never bootstrap out of it. Supplies
+        #               still matter (hunger blocks regen), so we surface them as a
+        #               warning attached to the fight, never as a refusal.
+        condition = lambda do
           s     = MudText.strip_ansi(send_cmd.call(p.info_self("score")))
           hp    = s[/(\d+)\(\d+\)\s+hit/i, 1]&.to_i
           maxhp = s[/\d+\((\d+)\)\s+hit/i, 1]&.to_i
           mv    = s[/(\d+)\(\d+\)\s+movement/i, 1]&.to_i
           inv   = MudText.strip_ansi(send_cmd.call(p.info_self("inventory")))
-          supplied = (inv =~ food_kw) && (inv =~ drink_kw)
-          !!(hp && maxhp && hp >= (maxhp * 0.9).floor && mv && mv.positive? && supplied)
+          { ready:    !!(hp && maxhp && hp >= (maxhp * 0.9).floor && mv && mv.positive?),
+            supplied: !!((inv =~ food_kw) && (inv =~ drink_kw)),
+            hp: hp, maxhp: maxhp, mv: mv }
         end
+
+        # Kept for callers that only care about the combat veto.
+        good_condition = lambda { condition.call[:ready] }
 
         # Consider one mob by trying its candidate keywords until the MUD matches
         # one. Returns [keyword, rating, tier] or nil if nothing matched.
         consider_mob = lambda do |kwset|
           kwset[:keywords].each do |kw|
-            rating = MudText.strip_ansi(send_cmd.call(p.consider(kw))).strip.lines.first.to_s.strip
-            tier   = consider_tier.call(rating)
-            next if tier == :miss
+            rating, tier = consider_read.call(kw)
+            # No rating at all (combat spam / stale bytes) — this keyword told us
+            # nothing, so try the next one rather than treating noise as a verdict.
+            next if tier.nil? || tier == :miss
             return [kw, rating, tier]
           end
           nil
@@ -617,7 +804,7 @@ module Boukensha
               end
               if pref >= 3.0 || pref == 0.5                       # perfect-match / risky need full HP
                 cond = good_condition.call if cond.nil?
-                (passed << "#{kw} (\"#{rating}\", only at full HP)"; next) unless cond
+                (passed << "#{kw} (\"#{rating}\", need full HP + movement first — rest_until)"; next) unless cond
               end
               engageable << { kw: kw, rating: rating, pref: pref, hid: hid }
             end
@@ -813,16 +1000,44 @@ module Boukensha
           tgt = target.to_s.strip
           return "error: no target given" if tgt.empty?
 
-          rating = MudText.strip_ansi(send_cmd.call(p.consider(tgt))).strip.lines.first.to_s.strip
-          tier   = consider_tier.call(rating)
+          rating, tier = consider_read.call(tgt)
+          already_fighting = score_stats.call[:fighting]
+
+          if tier.nil?
+            # No rating came back. If we're ALREADY in this fight, refusing is the
+            # worst possible answer — disengaging costs xp and leaves the mob on us.
+            # Press the attack and let wimpy guard the downside.
+            if already_fighting
+              tier = :even
+              rating = "unrated (already in combat — consider was drowned out by the fight)"
+            elsif !force
+              return "Couldn't get a consider rating for '#{tgt}' — the reply was #{rating.to_s.lines.first.to_s.strip.inspect}, not a rating. Not guessing at whether it's safe: `look` to confirm the target is here and try again, or pass force:true if you're sure."
+            end
+          end
+
           return "No '#{tgt}' here to fight (#{rating.empty? ? 'nothing matched' : rating})." if tier == :miss
           if tier == :unsafe && !force
+            # Already trading blows? Then this is not a choice we still have. Fleeing
+            # costs experience, so say so plainly rather than pushing the agent into it.
+            if already_fighting
+              return "'#{tgt}' is dangerous (consider: \"#{rating}\") and it is ALREADY fighting you — you're committed. Fight on with force:true (wimpy will pull you out at ~1/3 HP), or flee knowing that fleeing costs experience in this MUD."
+            end
             return "Refusing to fight '#{tgt}' — consider says \"#{rating}\". Too dangerous. Use hunt to find safe prey, or pass force:true only if you truly mean it."
           end
-          # A perfect-match or "some luck" fight is only worth it when Perry is topped
-          # up (full HP, movement, supplies) — wimpy covers the downside from there.
-          if (tier == :even || tier == :risky) && !force && !good_condition.call
-            return "'#{tgt}' would be a #{tier == :risky ? "'some luck'" : 'perfect-match'} fight — only worth it at full HP with movement and food/water on hand, and you're not there right now. rest_until / restock first, or pass force:true."
+          # A perfect-match or "some luck" fight is only worth it when we're topped up —
+          # wimpy covers the downside from there. HP/movement is a real veto (rest fixes
+          # it). Missing food/water is NOT: it's a provisioning goal, and refusing on it
+          # deadlocks a character with no gold out of the very fights that would earn
+          # the gold. Warn, then let the fight happen.
+          supply_note = ""
+          if (tier == :even || tier == :risky) && !force
+            cond = condition.call
+            unless cond[:ready]
+              return "'#{tgt}' would be a #{tier == :risky ? "'some luck'" : 'perfect-match'} fight — worth it only at full HP with movement to spare, and you're at #{cond[:hp]}/#{cond[:maxhp]} HP with #{cond[:mv]} movement. rest_until first, or pass force:true."
+            end
+            unless cond[:supplied]
+              supply_note = " [no food/water on you — hunger and thirst block healing, so restock when you can afford it; fighting on regardless]"
+            end
           end
 
           before = score_stats.call
@@ -939,10 +1154,28 @@ module Boukensha
           after       = score_stats.call
           chase_note  = chased.positive? ? " (chased it down #{chased} room#{chased == 1 ? '' : 's'})" : ""
 
-          # Auto-loot on a kill (items + any coins). Perry is in the room where it died.
+          # Auto-loot on a kill (items + any coins), and REPORT WHAT WE ACTUALLY GOT.
+          # The old code threw both replies away and printed "Looted corpse." on every
+          # kill — so an empty corpse, a failed get, and a dropped sword all read the
+          # same. That silence is why a character can kill a dozen mobs and still be
+          # swinging bare fists: loot vanishes into the inventory unannounced.
+          loot_note = ""
           if killed
-            send_cmd.call(p.get("all", container: "corpse"))
-            send_cmd.call(p.get("coins", container: "corpse"))
+            got  = MudText.strip_ansi(send_cmd.call(p.get("all", container: "corpse")).to_s)
+            got += "\n" + MudText.strip_ansi(send_cmd.call(p.get("coins", container: "corpse")).to_s)
+            items = got.scan(/you get\s+(.+?)\s+from\s+(?:the\s+)?corpse/i).flatten
+                       .map { |s| s.strip.sub(/\.$/, "") }.reject(&:empty?).uniq
+            loot_note =
+              if items.empty?
+                " Corpse was empty."
+              else
+                " Looted: #{items.join(', ')}."
+              end
+            # A weapon on the floor is worth more than the xp when you're unarmed.
+            if (found = items.find { |i| i =~ weapon_kw }) && wielded.call.nil?
+              res = MudText.strip_ansi(send_cmd.call(p.equip("wield", found.split.last.downcase)).to_s)
+              loot_note += res =~ /you wield|you start using/i ? " WIELDED #{found} (you were bare-handed)." : " #{found} looks like a weapon but couldn't be wielded — check `equipment`."
+            end
           end
 
           dxp     = (after[:xp] && before[:xp]) ? after[:xp] - before[:xp] : nil
@@ -953,12 +1186,12 @@ module Boukensha
           # Did wimpy actually pull Perry out? Only if his HP is down near the floor.
           low_hp  = after[:hp] && wimpy_floor && after[:hp] <= wimpy_floor + 3
 
-          if died
+          outcome = if died
             "You DIED fighting '#{tgt}'. Respawned — your gear is on your corpse. #{vit}."
           elsif leveled
-            "Killed '#{tgt}'#{chase_note} — #{opener_note}. #{xpline} → LEVEL #{after[:level]}! Looted corpse. #{vit}. You have new practice sessions — train at your guild."
+            "Killed '#{tgt}'#{chase_note} — #{opener_note}. #{xpline} → LEVEL #{after[:level]}!#{loot_note} #{vit}. You have new practice sessions — train at your guild."
           elsif killed
-            "Killed '#{tgt}'#{chase_note} — #{opener_note}. #{xpline}#{nextl}. Looted corpse. #{vit}."
+            "Killed '#{tgt}'#{chase_note} — #{opener_note}. #{xpline}#{nextl}.#{loot_note} #{vit}."
           elsif perry_fled
             if low_hp
               "Wimpy pulled you out of the fight with '#{tgt}' — HP got dangerously low. #{vit}. Rest to recover, then hunt weaker prey."
@@ -971,6 +1204,19 @@ module Boukensha
           else
             "Fight with '#{tgt}' didn't fully resolve (#{opener_note}). #{vit}. If it's still here, fight again; if you're hurt, rest."
           end
+          # The supply warning rides along with the outcome — it's context for the next
+          # decision, never a reason the fight didn't happen.
+          #
+          # Housekeeping runs HERE too, not just on movement. A hunt/fight/rest grind
+          # never touches `remember`, so hooking the cadence only to movement meant the
+          # gear-and-supplies sweep stayed silent through exactly the activity it exists
+          # for — swinging bare fists on an empty stomach.
+          hk = begin
+            housekeeping.call
+          rescue StandardError
+            nil
+          end
+          [died ? outcome : outcome + supply_note, hk].compact.join("\n")
         end
 
         # ── Connection ─────────────────────────────────────────────────────
@@ -1121,8 +1367,9 @@ module Boukensha
             # it again, then teleport to safety.
             if body =~ trap_re
               world.mark_blocked(direction.to_s.strip.downcase[0], from_fp: from_fp, reason: "DEATH TRAP")
-              recall_safe.call
-              next "DEATH TRAP — '#{direction}' drops into #{body.lines.first&.strip} which zeroes your HP. Teleported you out (and re-oriented) and marked that exit off-limits forever. Rest to recover; never go that way."
+              escaped = recall_safe.call
+              next "DEATH TRAP — '#{direction}' drops into #{body.lines.first&.strip} which zeroes your HP. Marked that exit off-limits forever. " +
+                   (escaped ? "Teleported you out (and re-oriented). Rest to recover; never go that way." : recall_failed_note.call)
             end
 
             # Same guard hunt/explore use, now for deliberate steps: don't let the
@@ -1133,7 +1380,7 @@ module Boukensha
                 world.observe(send_cmd.call(p.move(back)))
                 next "That way is ABOVE your recommended level — lethal terrain for you. Backed you out. Use travel_to a safe area or teleport MIDGAARD; do not push deeper."
               end
-              next "You're in an over-level zone and there's no safe way back the way you came — recall to escape now."
+              next "You're in an over-level zone and there's no safe way back the way you came. Try `recall` — but CHECK what it reports: without a teleporter it will tell you it failed, and then your only way out is on foot."
             end
             enriched
           rescue ArgumentError => e
@@ -1186,14 +1433,16 @@ module Boukensha
           parameters: {} do
           next guard.call if guard.call
           begin
-            recall_safe.call
+            ok  = recall_safe.call
             s   = MudText.strip_ansi(send_cmd.call(p.info_self("score")))
             hp  = s[/(\d+)\(\d+\)\s+hit/i, 1]; mhp = s[/\d+\((\d+)\)\s+hit/i, 1]
             mv  = s[/(\d+)\(\d+\)\s+movement/i, 1]
+            next "#{recall_failed_note.call} (HP #{hp}/#{mhp}, #{mv} movement.)" unless ok
+
             loc = world.name_for_id(world.current_id) rescue nil
             "Recalled to #{loc || 'the Temple of Midgaard'}. HP #{hp}/#{mhp}, #{mv} movement. Safe — standing by."
           rescue StandardError => e
-            "Recalled (teleported to the Temple), but couldn't read state: #{e.message}"
+            "Tried to recall but couldn't confirm it worked (#{e.message}). Do NOT assume you moved — `look` to see where you are before acting."
           end
         end
 
@@ -1361,13 +1610,21 @@ module Boukensha
           vit = "HP #{last[:hp]}/#{last[:maxhp]}#{last[:mv] ? ", #{last[:mv]} move" : ''}"
           next "Rest interrupted — a fight started (#{vit}). Standing — handle it." if interrupted
           ate = fed.empty? ? "" : " (#{fed.uniq.join(', ')})"
-          if reached.call(last)
+          rest_out = if reached.call(last)
             "Rested up#{ate} — #{vit}. Standing, ready."
           elsif (last[:hp].to_i > start[:hp].to_i) || (last[:mv].to_i > start[:mv].to_i)
             "Recovered to #{vit}#{ate} (target not fully reached — regen is slow; call rest_until again to keep going). Standing."
           else
             "No recovery (#{vit})#{ate}. Regen may be blocked — out of food/water, or the room keeps interrupting. Standing."
           end
+          # Slow or blocked regen is the exact symptom of missing food/water, so force
+          # the supplies sweep here rather than waiting for the cadence to come round.
+          hk = begin
+            housekeeping.call(force: !reached.call(last))
+          rescue StandardError
+            nil
+          end
+          [rest_out, hk].compact.join("\n")
         end
 
         registry.tool "flee",
@@ -1587,7 +1844,15 @@ module Boukensha
           } do |item:, container: nil, count: nil|
           next guard.call if guard.call
           begin
-            send_cmd.call(p.get(item, container: container, count: count))
+            res = MudText.strip_ansi(send_cmd.call(p.get(item, container: container, count: count)).to_s)
+            # "<thing> is not a container" means the item's own name landed in the
+            # container slot — a plain floor pickup dressed up as a container fetch.
+            # Retry as the simple `get <item>` the agent meant.
+            if container && res =~ /is not a container/i
+              res = MudText.strip_ansi(send_cmd.call(p.get(item, count: count)).to_s)
+              res += " (retried without container: #{container.inspect} isn't one — omit it to pick something off the floor.)"
+            end
+            res
           rescue ArgumentError => e
             "error: #{e.message}"
           end
@@ -1632,7 +1897,21 @@ module Boukensha
           } do |item:, action:, body_loc: nil|
           next guard.call if guard.call
           begin
-            send_cmd.call(p.equip(action, item, body_loc: body_loc))
+            res = MudText.strip_ansi(send_cmd.call(p.equip(action, item, body_loc: body_loc)).to_s)
+            # A bad body_loc is the classic misfire: passing the item's own name as the
+            # location sends "wear vest vest" and the MUD asks what body part that is.
+            # Retry once WITHOUT the location rather than making the agent guess.
+            if body_loc && res =~ /what part of your body|you can'?t wear that there/i
+              res = MudText.strip_ansi(send_cmd.call(p.equip(action, item)).to_s)
+              res += " (retried without body_loc: #{body_loc.inspect} isn't a body part — omit it and the MUD picks the slot.)"
+            end
+            # Echo the command on failure. Without this, "You can't wield that" gives
+            # neither the agent nor a human any idea WHAT was attempted — which is how
+            # a perfectly good dagger got picked up, failed, and dropped as useless.
+            if res =~ /can'?t wield|can'?t wear|what part of your body|you don'?t (?:have|seem to have)/i
+              res += " [sent: #{p.equip(action, item, body_loc: body_loc).raw.inspect}]"
+            end
+            res
           rescue ArgumentError => e
             "error: #{e.message}"
           end

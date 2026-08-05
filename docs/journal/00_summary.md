@@ -20,6 +20,7 @@ detailed entry. Everything builds on the previous chapter — the thread is cont
 | 4 | **Completing the toolkit** (seek · survival · prioritization) | [4_seek.md](./4_seek.md) | `seek` place-discovery, heal + safe-sleep, prey prioritization; validated on a **wiped map**, 0 deaths |
 | 5 | **Planning — a goal, decomposed** | [5_planning.md](./5_planning.md) | Two-model orchestration (**Sonnet-5 plans, Haiku executes**); validated, one real bug found **and fixed** |
 | 6 | **The capstone — hunt the minotaur** | [6_minotaur.md](./6_minotaur.md) | The actual bootcamp goal; added `scan`/`locate`; the minotaur is a fast **cross-zone roamer** — *in progress* |
+| 7 | **Hectic — a cold-start control character** | [7_hectic.md](./7_hectic.md) | Strip the world knowledge and re-measure: a blank-map L1 Warrior reached **level 2, 0 deaths**, exposing **8 defects** Perry's briefing had hidden |
 | ★ | **Reference — the toolkit on one page** | [movement_combat_toolkit.md](./movement_combat_toolkit.md) | Every tool + the safety stack (also a visual [Artifact](https://claude.ai/code/artifact/f6b4ad90-7ad6-46e4-9a80-f19a29e06167)) |
 | ★ | **Reference — tools & reasoning** | [tools_and_reasoning.md](./tools_and_reasoning.md) | How each tool works and **how the agent decides which to use** (the division of labor: model chooses *what/whether*, tools do the *how* + embed the tactics) |
 

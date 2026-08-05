@@ -149,17 +149,25 @@ module MudManager
       end
     end
 
-    # CircleMUD terminates every command response with a prompt that ends in
-    # "> " (greater-than space). Waiting for that sentinel is faster and more
-    # deterministic than relying on a silence window — it returns as soon as
-    # the server signals it has finished processing the command.
+    # CircleMUD terminates every command response with a vitals prompt:
+    #   "21H 100M 84V (news) (motd) > "
     #
-    # Falls back to draining the buffer if the prompt is never seen within
-    # the timeout (e.g. during combat when extra async lines may slip in).
+    # Matching on a bare "> " (the old sentinel) is WRONG, because the game's own
+    # output contains that sequence. The equipment listing is the worst offender:
+    #
+    #   <used as light>      a candle
+    #            ^^ ">" + space — an exact "> " match
+    #
+    # so every `equipment` read stopped dead at the first slot label and returned
+    # 32 bytes. Equipment was effectively unreadable: nothing could tell whether a
+    # character was armed. Anchor on the VITALS prompt instead, which only the real
+    # prompt produces. The timeout path still drains, so a response that legitimately
+    # lacks a vitals prompt degrades to the silence-based read rather than hanging.
     PROMPT_SENTINEL = "> "
+    PROMPT_RE       = /\d+H\s+\d+M\s+\d+V[^\n]*?>\s/.freeze
 
     def read_until_prompt(timeout: nil)
-      read_until(PROMPT_SENTINEL, timeout: timeout)
+      read_until(PROMPT_RE, timeout: timeout)
     rescue Timeout
       warn "[MudManager::Session] prompt not detected within timeout; returning buffered content"
       drain

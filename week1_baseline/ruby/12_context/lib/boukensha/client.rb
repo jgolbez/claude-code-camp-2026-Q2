@@ -4,7 +4,12 @@ require "openssl"
 
 module Boukensha
   class Client
-    RETRYABLE_STATUS_CODES = [408, 409, 429, 500, 502, 503, 504].freeze
+    # 529 is Anthropic's "overloaded_error" — not a standard HTTP code, so it was
+    # missing here and every overload blew up the whole run instead of backing off.
+    # Worse, downstream it looked like a GAME blocker: the executor subprocess died
+    # without reporting, the orchestrator saw no state change, and replanned around
+    # an obstacle that never existed.
+    RETRYABLE_STATUS_CODES = [408, 409, 429, 500, 502, 503, 504, 529].freeze
     TRANSIENT_ERRORS = [
       EOFError,
       Errno::ECONNRESET,

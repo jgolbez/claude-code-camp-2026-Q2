@@ -33,6 +33,19 @@ module Boukensha
     # hammering the same blocked exit forever.
     BLOCKED = "blocked".freeze
 
+    # An UNLIT room. The MUD prints only "It is pitch black..." — no name, no
+    # description, no exits line. This is NOT "you failed to move": the step
+    # succeeded and we are somewhere new that simply cannot be read.
+    #
+    # Two things must not happen when this text arrives, and both did once:
+    #   1. It must not be mistaken for a bounced move (that marked a perfectly
+    #      good exit BLOCKED — the well down into the sewer).
+    #   2. The model must not keep reporting the PREVIOUS room as "you are here".
+    #      Position is genuinely unknown until something readable is seen, and
+    #      saying otherwise walked an agent blind through a sewer while every
+    #      tool result insisted it was still standing in the practice yard.
+    DARK_RE = /it is pitch black|too dark to see/i.freeze
+
     # Normalise a movement direction (full word or short form) to its short form,
     # matching the letters CircleMUD prints in the "[ Exits: ... ]" line.
     SHORT = {
@@ -74,6 +87,7 @@ module Boukensha
       @rooms      = {}   # fingerprint => room hash
       @next_id    = 0
       @current_fp = nil
+      @dark       = nil  # {"via" =>, "from_id" =>} while position is unknown (unlit room)
       existed     = File.exist?(@path)
       load
       announce_load(existed) if announce
@@ -98,10 +112,28 @@ module Boukensha
     # item) — in which case the caller appends nothing and nothing is recorded.
     #
     # arrived_via is accepted now but unused until slice 2 (edge recording).
-    def observe(raw, arrived_via: nil, move_cost: nil)
+    def observe(raw, arrived_via: nil, move_cost: nil, moved: nil)
+      # Unreadable (unlit) room. Whether this costs us our position depends on
+      # whether we MOVED into it:
+      #
+      #   * moved  — we stepped somewhere new and can't identify it. Position is
+      #     genuinely unknown; keeping the room we left is the lie that walked a
+      #     blind agent through a sewer.
+      #   * stood still — an outdoor room we already know simply went dark at
+      #     nightfall. We know perfectly well where we are; only mapping pauses.
+      #     Dropping position here would wipe the agent's location every dusk.
+      if unreadable?(raw)
+        stepped = moved.nil? ? !arrived_via.nil? : moved
+        @dark = { "via" => SHORT[arrived_via.to_s.strip.downcase],
+                  "from_id" => current_id, "moved" => stepped }
+        @current_fp = nil if stepped
+        return current_memory_line
+      end
+
       room = parse_room(raw)
       return nil unless room
 
+      @dark   = nil   # something readable — position is known again
       fp      = fingerprint(room)
       prev_fp = @current_fp
       entry   = @rooms[fp]
@@ -194,7 +226,13 @@ module Boukensha
       # interleaved with a room read and land as the FIRST non-empty line — they must
       # NOT be taken as the room NAME (that pollutes the map with bogus rooms like
       # "A booming voice announces, 'Welcome Perry to the realm!'"). Skip them.
-      broadcast_re = /\bannounces,|\bbooming voice\b|\bgossips?\b|\bauctions?\b|\bshouts?\b|\[\s*(?:gossip|auction|shout|newbie)\s*\]/i
+      #
+      # The MUD's own warning lines are the same hazard and are easier to miss,
+      # because they read like prose: entering an over-level area prefixes the room
+      # block with "This zone is above your recommended level." — which once became
+      # a room NAME, demoting the real name ("The City Entrance") into the
+      # description and giving the map a room that does not exist.
+      broadcast_re = /\bannounces,|\bbooming voice\b|\bgossips?\b|\bauctions?\b|\bshouts?\b|\[\s*(?:gossip|auction|shout|newbie)\s*\]|above your recommended level/i
       name_idx = lines.index { |l| !l.strip.empty? && l !~ broadcast_re }
       return nil unless name_idx && name_idx < exits_idx
 
@@ -257,12 +295,47 @@ module Boukensha
 
     def room_count = @rooms.size
 
+    # True while we are somewhere unreadable (unlit) and position is unknown.
+    def dark? = !@dark.nil?
+
     # The [memory] line for the room the agent is currently in.
     def current_memory_line
+      return dark_memory_line if @dark
       return nil unless @current_fp && (entry = @rooms[@current_fp])
       status = entry["visits"] == 1 ? "new" : "known"
       times  = entry["visits"] == 1 ? "first visit" : "visited #{entry['visits']}×"
       %([memory] Room ##{entry['id']} "#{entry['name']}" — #{times} (#{status}). #{exits_summary(entry)})
+    end
+
+    # Is this text an unlit room — a real place we simply cannot read? Requires
+    # BOTH the darkness message and the absence of an exits line, so a lit room
+    # that merely mentions darkness in its prose ("a well leads down into
+    # darkness") is never mistaken for one.
+    def unreadable?(raw)
+      text = raw.to_s.gsub(ANSI, "")
+      text =~ DARK_RE && text !~ /\[\s*Exits:/i ? true : false
+    end
+
+    # What to tell the agent while it cannot see. Two very different situations,
+    # and conflating them is what made this dangerous in the first place.
+    def dark_memory_line
+      via  = @dark && @dark["via"]
+      from = @dark && @dark["from_id"]
+      back = via && OPP[via]
+
+      unless @dark && @dark["moved"]
+        # Lights out where we stand — nightfall, or an unlit room we already know.
+        # Position still holds; only mapping is paused.
+        where = current_id ? "You are still in room ##{current_id}" : "Position unchanged"
+        return "[memory] It's too dark to see here — the room can't be read, so nothing new " \
+               "is mapped. #{where}. Light a light source to see and map again."
+      end
+
+      "[memory] UNLIT room — pitch black, nothing to identify, so it is NOT mapped. " \
+      "#{via ? "Moved #{via}#{from ? " from ##{from}" : ''} into it. " : ''}" \
+      "Your position is UNKNOWN: travel_to/explore cannot plan from here, and nothing will " \
+      "map until you can see. Get a light source lit" +
+        (back ? ", or step #{back} to go back the way you came." : ".")
     end
 
     # Human-readable exit summary. A mapped neighbour shows as "dir→#id"; an

@@ -15,6 +15,9 @@
 # Boukensha runtime plan state (written by the orchestrator per goal, not source)
 .boukensha/plan.json
 
-# Nested runtime dirs from scripts run in the wrong cwd
+# Same runtime state for any OTHER character's config dir (characters/<name>/.boukensha),
+# and for stray nested dirs left by scripts run in the wrong cwd.
 **/.boukensha/world.json
-**/.boukensha/sessions/
+**/.boukensha/plan.json
+**/.boukensha/sessions/*
+!**/.boukensha/sessions/.keep
