@@ -1,9 +1,12 @@
 # The capstone goal — hunt and kill the minotaur (with SCAN + WHERE)
 
-> **Status:** pre-registration → build in progress (2026-08-01). This is the actual
-> **bootcamp goal**: have the agent play Perry and **kill the minotaur in the newbie
-> zone**. It sits on the whole toolkit ([3_combat](./3_combat.md) / [4_seek](./4_seek.md))
-> and the planning arc ([5_planning](./5_planning.md)).
+> **Status:** 🏆 **COMPLETE (2026-08-03).** This was the actual **bootcamp goal**: have the
+> agent play Perry and **kill the minotaur in the newbie zone**. It did — located the
+> minotaur, was ambushed by it mid-hunt, and out-meleed it to **Level 5, 0 deaths, gear
+> intact** (see Slice 14 below). It sits on the whole toolkit
+> ([3_combat](./3_combat.md) / [4_seek](./4_seek.md)) and the planning arc
+> ([5_planning](./5_planning.md)). The pre-registration that opens this entry is kept as
+> written, so the design can be read against what actually happened.
 
 ## Technical Goal
 Get Perry to **find and kill "the massive Minotaur"** — the newbie-zone boss — self-directed.
