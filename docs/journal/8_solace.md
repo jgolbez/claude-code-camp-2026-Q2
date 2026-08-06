@@ -99,14 +99,15 @@ calling a successful move blocked — one storey up.
 
 ## Where we paused
 
-- **The sewer is a tar pit.** Three characters have fallen in. It is adjacent to the
-  newbie zone, the obvious frontier once that zone thins, one-way in four places, and
-  expensive to escape on foot. `seek` is already leashed out of dangerous zones;
-  **`explore` is not**, and that is the single highest-value remaining fix.
+- ~~**The sewer is a tar pit.**~~ **FIXED.** Three characters fell in before
+  `explore` got the same danger leash `seek` already had: a blind step that crosses
+  into an unsafe zone now backs out, marks that exit off the frontier, and says so.
+  Entering deliberately with `move` is still allowed.
 - **`at_place` names are unvalidated** — the planner repeatedly targeted a room called
   "Teleporter", which does not exist and can never tick.
-- **Alignment is still invisible** (`score_stats` never parsed it) — the only open item
-  that can still get a character killed.
+- ~~**Alignment is invisible.**~~ **FIXED.** `score_stats` now parses it and `fight`
+  reports the drift whenever it moves, warning as it falls toward zero and loudly once
+  it turns negative — the state that makes city guards hostile.
 - `hunt`'s guarded-room check still cannot fire before the kill that summons guards;
   `known_places` still truncates at 40 rooms; fountain refills are still not preferred
   over purchases.

@@ -654,6 +654,23 @@ module Boukensha
             return "Explored #{dir} from room ##{before} — that zone is ABOVE your level (backed out, won't retry). Try another direction, or hunt elsewhere."
           end
 
+          # DANGER BOUNDARY — the same leash `seek` has, which `explore` was missing.
+          # Auto-exploring is blind by nature, and the sewer sits right next to the
+          # newbie zone: it is the obvious frontier once that zone thins, it is one-way
+          # in four places, and walking back out costs a character several runs. THREE
+          # characters were stranded down there before this check existed. Entering
+          # deliberately is still allowed — this only stops the BLIND step in.
+          zone_here = zone_now.call
+          if zone_here && !safe_to_quit_here.call(zone_here)
+            back = opp_dir[norm]
+            world.observe(send_cmd.call(p.move(back))) if back
+            world.mark_blocked(short, from_fp: world.fp_for_id(before), reason: "leads into #{zone_here}")
+            return "Explored #{dir} from room ##{before} — that way drops into #{zone_here.inspect}, a DANGEROUS zone " \
+                   "I won't auto-explore into (aggressive mobs, one-way entrances, and a long walk back out). " \
+                   "Backed you out and left that exit off the frontier. If you MEAN to go in, provision first " \
+                   "(a lit light, food, water, and a way home) and `move #{dir}` deliberately."
+          end
+
           prefix = walked.empty? ? "" : "Walked #{walked.join(' → ')} to the frontier, then "
           tail   = body =~ combat_re ? " — COMBAT, your call" : ""
           "#{prefix}stepped #{dir} into new territory#{tail} (now room ##{world.current_id}).\n#{enriched}"
@@ -972,6 +989,11 @@ module Boukensha
             xp:    s[/have\s+(\d+)\s+exp/i, 1]&.to_i,
             need:  s[/need\s+(\d+)\s+exp/i, 1]&.to_i,
             level: s[/\(level\s+(\d+)\)/i, 1]&.to_i,
+            # ALIGNMENT. Never parsed before, so the agent could not see the one meter
+            # that gets a low-level character killed in town: kill enough citizens and
+            # it falls, and the Peacekeepers turn on you. Hectic went 114 -> 4 in two
+            # janitor kills with nothing said. Invisible state is unreasonable-about-able.
+            align: s[/alignment\s+is\s+(-?\d+)/i, 1]&.to_i,
             # Already locked in melee? score can say so, and the text drained just
             # before the score command catches incoming attack spam. Either signal ⇒
             # a backstab opener is impossible (you can't backstab mid-fight), so the
@@ -1191,6 +1213,22 @@ module Boukensha
           # Did wimpy actually pull Perry out? Only if his HP is down near the floor.
           low_hp  = after[:hp] && wimpy_floor && after[:hp] <= wimpy_floor + 3
 
+          # ALIGNMENT drift, reported when it MOVES. Killing townsfolk drags it down and
+          # the city guard eventually answers for it; killing vermin pushes it up. The
+          # agent has no other way to see this coming, so say it — and say it loudly once
+          # the number turns negative, which is the side the guards care about.
+          align_note = ""
+          if after[:align] && before[:align] && after[:align] != before[:align]
+            d = after[:align] - before[:align]
+            align_note = " Alignment #{d.positive? ? '+' : ''}#{d} → #{after[:align]}."
+            if after[:align] < 0
+              align_note += " ⚠ You are now EVIL-aligned: city guards turn on characters who kill" \
+                            " townsfolk. Hunt outside town, or expect to be attacked on sight."
+            elsif d.negative? && after[:align] < 100
+              align_note += " (Falling — these are townsfolk; keep killing them and the guards will answer.)"
+            end
+          end
+
           outcome = if died
             "You DIED fighting '#{tgt}'. Respawned — your gear is on your corpse. #{vit}."
           elsif leveled
@@ -1221,7 +1259,7 @@ module Boukensha
           rescue StandardError
             nil
           end
-          [died ? outcome : outcome + supply_note, hk].compact.join("\n")
+          [died ? outcome : outcome + align_note + supply_note, hk].compact.join("\n")
         end
 
         # ── Connection ─────────────────────────────────────────────────────
