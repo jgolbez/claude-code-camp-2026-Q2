@@ -22,6 +22,7 @@ detailed entry. Everything builds on the previous chapter — the thread is cont
 | 6 | **The capstone — hunt the minotaur** | [6_minotaur.md](./6_minotaur.md) | The actual bootcamp goal; added `scan`/`locate`; the minotaur is a fast **cross-zone roamer** — *in progress* |
 | 7 | **Hectic — a cold-start control character** | [7_hectic.md](./7_hectic.md) | Strip the world knowledge and re-measure: a blank-map L1 Warrior reached **level 2, 0 deaths**, exposing **8 defects** Perry's briefing had hidden |
 | 8 | **Solace — a second cold start** | [8_solace.md](./8_solace.md) | Did those fixes generalise? An 18-HP Cleric on a 5-part goal: **the tool layer never failed** (0 of Hectic's 8 recurred); all **9 new defects were in the planning layer**. Reached **level 2, 0 deaths** — but the intervention rate did *not* fall, and autonomy from a cold start is still unproven |
+| 9 | **Cold starts — four characters, and what they taught** | [9_cold_start.md](./9_cold_start.md) | Tarn finished a 4-part goal with **ZERO interventions**; Rell matched him but lost his budget to a hole in a fix. The arc: **~30 runs, 0 deaths, 24 defects** — 8 in the tools (none ever recurred), 13 in planning, 3 self-inflicted |
 | ★ | **Reference — the toolkit on one page** | [movement_combat_toolkit.md](./movement_combat_toolkit.md) | Every tool + the safety stack (also a visual [Artifact](https://claude.ai/code/artifact/f6b4ad90-7ad6-46e4-9a80-f19a29e06167)) |
 | ★ | **Reference — tools & reasoning** | [tools_and_reasoning.md](./tools_and_reasoning.md) | How each tool works and **how the agent decides which to use** (the division of labor: model chooses *what/whether*, tools do the *how* + embed the tactics) |
 
@@ -102,6 +103,19 @@ instructor's heavier detours — a trained room-parser, OpenTelemetry.)*
   it in-room for a `consider` is the live challenge. Chasing it once stranded Perry in the
   sewer, which drove a **safe-park-before-quit** fix (never leave him saved inside a
   dangerous zone). Still **zero deaths** — the safety layer held.
+- **Cold starts** ([7_hectic](./7_hectic.md) · [8_solace](./8_solace.md) ·
+  [9_cold_start](./9_cold_start.md)) — the control experiment for everything above: strip
+  Perry's hand-written world knowledge and his 141-room map, and re-measure. **Four
+  brand-new characters, ~30 autonomous runs, 0 deaths, 24 defects** that the warm start had
+  been papering over. The distribution is the finding: **8 in the tool layer** (all from the
+  first character, and **none ever recurred** for the next three — the tools generalised),
+  **13 in the planning layer** (untested until a compound provisioning goal loaded it), and
+  **3 self-inflicted** by fixes whose predicates weren't grounded. The recurring lesson, in
+  both layers: **a component must verify what it asserts** — `recall` claimed a teleport it
+  never made, `explore` called a successful move blocked, and one storey up the planner
+  asserted checkpoints nothing could evaluate. **Tarn** finished a four-part compound goal
+  with **zero human interventions**; safety became a property of the *character* (readiness:
+  light, food, water, a way home) rather than a hardcoded list of zones.
 
 ## Technical Conclusions
 

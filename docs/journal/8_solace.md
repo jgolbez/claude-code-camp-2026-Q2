@@ -164,3 +164,8 @@ Seven interventions during the main run, nine in total, **none of them Hectic's 
 of them in the tools**. The character-facing harness held. The plumbing above it — the
 layer that turns a sentence into checkable milestones — is where the work now is, and it
 has not yet been tested by anything that did not have a human watching it.
+
+> **Follow-up:** it was, twice. See [9_cold_start](./9_cold_start.md) — **Tarn** completed a
+> four-part compound goal from a genuine cold start with **zero interventions**, and **Rell**
+> matched the work but lost his replan budget to a hole in the `explore` leash (`hunt` had
+> none). That chapter also synthesises the lessons across all four cold-start characters.
