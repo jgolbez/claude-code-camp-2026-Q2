@@ -233,6 +233,63 @@ module Boukensha
           nil
         end
 
+        # ── Readiness, and what it earns you ──────────────────────────────────
+        #
+        # A "safe zone" is not a place on a list — it is a place this character can
+        # reasonably expect to SURVIVE, and that changes as it levels and equips. The
+        # old leash asked `safe_to_quit_here`, a hardcoded allowlist of two zones
+        # written for a different question entirely (is it safe to LOG OUT here, so an
+        # idle body isn't eaten). Reusing it as a travel gate banned the sewer
+        # permanently for everyone regardless of kit — and still let `hunt` walk a
+        # character in through a door nobody had leashed.
+        #
+        # So: read what the character actually carries, and let readiness open the map.
+        # Fully kitted — light, food, water, and a way home — goes anywhere. Missing
+        # something goes only where survival is already established, and is TOLD what
+        # to fetch rather than simply refused.
+        # NOTE: the bare word "light" is deliberately absent — the equipment listing
+        # always contains the slot label "<used as light>", so matching it made every
+        # character read as carrying a lamp. The slot check below has the same hazard:
+        # it must require content on the SAME line, or an empty slot followed by the
+        # next line's "<worn on ...>" satisfies a naive \s*\S.
+        light_kw = /\b(candle|torch|lantern|lamp)\b/i
+
+        readiness = lambda do
+          inv = MudText.strip_ansi(send_cmd.call(p.info_self("inventory")).to_s)
+          eq  = MudText.strip_ansi(send_cmd.call(p.info_self("equipment")).to_s)
+          both = "#{inv}\n#{eq}"
+          {
+            light:  !!(eq =~ /<used as light>[ \t]*[^\s<]/i || both =~ light_kw),
+            food:   !!(both =~ food_kw),
+            water:  !!(both =~ drink_kw),
+            escape: !!(both =~ /teleport/i)
+          }
+        rescue StandardError
+          # Unreadable state fails SAFE — treat as unprovisioned rather than assume kit.
+          { light: false, food: false, water: false, escape: false }
+        end
+
+        # What's missing from the kit that hostile ground demands.
+        missing_kit = lambda do
+          r = readiness.call
+          m = []
+          m << "a lit light source"        unless r[:light]
+          m << "food"                      unless r[:food]
+          m << "water"                     unless r[:water]
+          m << "a way home (a teleporter)" unless r[:escape]
+          m
+        end
+
+        # The gate every blind-movement tool consults. Returns [] to allow, or the
+        # list of what's missing to refuse. Note what it does NOT do: it never bans a
+        # zone outright. Come back equipped and it opens.
+        zone_gate = lambda do |zone|
+          return [] if zone.nil? || zone.empty?
+          # Ground where survival is already established costs nothing to enter.
+          return [] if safe_to_quit_here.call(zone)
+          missing_kit.call
+        end
+
         # ── Housekeeping: a periodic status sweep that ADDS actions, never blocks ──
         # Provisioning and gear are background concerns. Gating combat on them
         # deadlocked a broke character; ignoring them entirely leaves one punching
@@ -661,14 +718,15 @@ module Boukensha
           # characters were stranded down there before this check existed. Entering
           # deliberately is still allowed — this only stops the BLIND step in.
           zone_here = zone_now.call
-          if zone_here && !safe_to_quit_here.call(zone_here)
+          lacking = zone_gate.call(zone_here)
+          unless lacking.empty?
             back = opp_dir[norm]
             world.observe(send_cmd.call(p.move(back))) if back
-            world.mark_blocked(short, from_fp: world.fp_for_id(before), reason: "leads into #{zone_here}")
-            return "Explored #{dir} from room ##{before} — that way drops into #{zone_here.inspect}, a DANGEROUS zone " \
-                   "I won't auto-explore into (aggressive mobs, one-way entrances, and a long walk back out). " \
-                   "Backed you out and left that exit off the frontier. If you MEAN to go in, provision first " \
-                   "(a lit light, food, water, and a way home) and `move #{dir}` deliberately."
+            world.mark_blocked(short, from_fp: world.fp_for_id(before), reason: "#{zone_here} — not equipped for it yet")
+            return "Explored #{dir} from room ##{before} — that way leads into #{zone_here.inspect}, and you're not " \
+                   "equipped for hostile ground yet. MISSING: #{lacking.join(', ')}. Backed you out and left that exit " \
+                   "off the frontier FOR NOW — this is not a permanent ban: get what's missing and it opens up. If you " \
+                   "mean to go in regardless, `move #{dir}` deliberately."
           end
 
           prefix = walked.empty? ? "" : "Walked #{walked.join(' → ')} to the frontier, then "
@@ -861,6 +919,17 @@ module Boukensha
                 _walked, interrupt = walk_route.call(rt)
                 return interrupt if interrupt && interrupt =~ /COMBAT/i
               end
+              # A remembered grind spot can sit in hostile ground — prey gets marked
+              # wherever it was killed, including the sewer. Mode 2 inherits the gate
+              # through `explore`, but this path walks a KNOWN route and had none, so
+              # it kept delivering under-equipped characters back into the tar pit.
+              # Skip such spots while the kit is missing; they return when it isn't.
+              lack = zone_gate.call(zone_now.call)
+              unless lack.empty?
+                passed << "a grind spot in hostile ground (missing #{lack.join(', ')}) — skipped"
+                next
+              end
+
               raw = send_cmd.call(p.look); world.observe(raw)
               hp = hp_of.call(raw); start_hp ||= hp
               return "Stopped hunting — you're taking damage (HP #{hp}). Get to a safe room and rest before hunting again." if hp && start_hp && hp <= [start_hp / 2, 10].max
@@ -949,8 +1018,13 @@ module Boukensha
             # the blind auto-search at the threshold and let the agent decide whether to press in
             # (deliberately, provisioned). Roaming safe town/newbie sub-zones doesn't trip this.
             z = zone_now.call
-            if z && !safe_to_quit_here.call(z)
-              return "Paused seeking \"#{target}\": auto-exploring just crossed into #{z.inspect} — a dangerous zone I won't blind-search through. You're at #{world.name_for_id(world.current_id)} (##{world.current_id}). \"#{target}\" is likely in there, or behind a locked door. If you mean to go in, make sure you're provisioned and then `explore`/`scan`/`move` deliberately (pick any locked grate). Otherwise `recall` or `move` back out."
+            short_of = zone_gate.call(z)
+            unless short_of.empty?
+              return "Paused seeking \"#{target}\": auto-exploring crossed into #{z.inspect}, and you're not equipped " \
+                     "for hostile ground yet — MISSING: #{short_of.join(', ')}. You're at " \
+                     "#{world.name_for_id(world.current_id)} (##{world.current_id}). \"#{target}\" is likely in there. " \
+                     "Fetch what's missing and seek again — the zone opens once you're kitted. To press on now, " \
+                     "`explore`/`scan`/`move` deliberately."
             end
             case step
             when /Nothing left to explore|no unexplored exits|search halted/i then break

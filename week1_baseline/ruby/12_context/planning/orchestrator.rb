@@ -124,9 +124,13 @@ module Plan
       1. GEAR UP first. A wielded weapon and worn armour change what is survivable more
          than anything else, and a newcomer can be outfitted for free before spending a
          coin. Never send an unarmed character out to explore or fight.
-      2. LIGHT, FOOD and WATER next. Unlit rooms cannot be seen or mapped — that is how
-         characters get lost in the dark — and hunger/thirst block healing.
-      3. THEN hunt, to earn xp and gold.
+      2. LIGHT, FOOD and WATER next — BUT ONLY IF THE CHARACTER CAN PAY FOR THEM.
+         Anything bought needs coin, so read the GOLD in the state block first: if it is
+         low, an EARNING milestone (gold_at_least) MUST come before every purchase.
+         A broke character's real order is gear → HUNT → provisions, not gear →
+         provisions → hunt. Scheduling a purchase for someone with no money is the
+         single most common way these plans stall.
+      3. THEN hunt, to earn xp and gold (or FIRST, per the rule above, when broke).
       4. TRAIN LAST. Practice sessions are earned by LEVELLING, so training before the
          character can level is out of order, and the guildmaster must be FOUND first.
     Never schedule a milestone whose prerequisite comes later in the plan.
@@ -279,13 +283,34 @@ module Plan
   # planner that report and let it route AROUND the obstacle: usually by making
   # the missing prerequisite (a place not yet found, an item not owned) its own
   # milestone first.
-  def replan!(goal, state, stuck_milestone, blocker, done_so_far)
+  # A short history of orderings ALREADY TRIED and how they failed. Without it the
+  # replanner has amnesia: on a live run it inverted "buy before earn" at replan 1,
+  # corrected it at 2, and then re-proposed the SAME inversion at replan 4 — three of
+  # five replans spent cycling through an approach it had already abandoned.
+  def attempt_history(plan)
+    tried = (plan["progress"] || []).grep(/REPLANNED/).last(6)
+    return "(this is the first revision)" if tried.empty?
+    tried.map { |t| "- #{t}" }.join("\n")
+  end
+
+  def replan!(goal, state, stuck_milestone, blocker, done_so_far, history = nil)
     task = <<~T
       GOAL: #{goal}
       #{state_block(state)}
 
       THE PLAN IS STUCK and must be revised.
       Already accomplished: #{done_so_far.empty? ? '(nothing yet)' : done_so_far.join('; ')}
+
+      ALREADY TRIED, and the state the character was in AT THE TIME:
+      #{history || '(this is the first revision)'}
+
+      Use that as evidence, NOT as a blocklist. Most of these failed because a
+      PRECONDITION was missing, not because the idea was wrong — a purchase that failed
+      at 0 gold is perfectly sound once the gold exists. Compare each against the CURRENT
+      state above: repeat an approach only if what defeated it has since changed, and
+      never repeat one whose blocker still stands. Do not drop a step the goal genuinely
+      needs just because an earlier ordering of it failed.
+
       The milestone that stalled: #{stuck_milestone['milestone'].inspect}
       The executor attempted it and reported back:
       ---
@@ -301,6 +326,8 @@ module Plan
           `explore`/`seek` find unmapped places.
         - If the stalled step turns out not to be needed for the goal, drop it.
         - Do not re-issue the stalled milestone unchanged.
+        - Do not re-propose an ordering whose blocker STILL applies; an ordering that
+          failed for a reason since resolved is fair game again.
       Output ONLY the JSON array, no prose.
     T
     raw  = Boukensha.run(task: task, system: PLANNER_SYSTEM, model: PLANNER, mud: false, working_dir: false,
@@ -402,6 +429,51 @@ module Plan
   # before the plan is accepted. Repair in place where we can; only the empty-plan
   # case goes back to the planner.
   #
+  # Below this, a character cannot buy anything worth buying, so any acquisition
+  # milestone scheduled ahead of an earning one is doomed.
+  BROKE_BELOW = 15
+
+  # Straighten an ordering the planner keeps getting wrong, WITHOUT asking it again.
+  #
+  # A broke character must earn before it can buy, but the ORDER OF OPERATIONS rule
+  # states gear -> provisions -> hunt as a fixed sequence, so the planner proposes
+  # purchases first about half the time. On a live run it inverted at replan 1,
+  # corrected at 2, and regressed to the same inversion at 4 — reaching the right
+  # order by attrition across five replans.
+  #
+  # We know the gold and we know which milestones acquire versus earn, so the fix is
+  # mechanical: if every earning milestone sits behind an acquisition and the purse is
+  # empty, hoist the first earning milestone to the front. Costs nothing, and the
+  # planner may then propose whatever order it likes.
+  # NOT everything acquired must be bought. A newcomer is outfitted FREE at the
+  # donation room — weapon, armour and a light — so those acquisitions are not gated
+  # on money and must never be pushed behind an earning milestone. Treating them as
+  # purchases sent an unarmed 26-HP character off to hunt, which is exactly what the
+  # gear-up-first rule exists to prevent.
+  FREE_KIT = /\A(?:weapon|blade|sword|dagger|mace|club|axe|armou?r|plate|mail|shield|helm|light|lamp|torch|candle)\z/i
+
+  def purchase?(milestone)
+    check = milestone["done_check"] || {}
+    return false unless check["type"] == "has_item"
+    check["name"].to_s.strip !~ FREE_KIT
+  end
+
+  def repair_order(milestones, state)
+    gold = state[:gold].to_i
+    return [milestones, nil] if gold >= BROKE_BELOW
+
+    # Only real PURCHASES need money in hand first.
+    acquire_at = milestones.index { |m| purchase?(m) }
+    earn_at    = milestones.index { |m| m.dig("done_check", "type") == "gold_at_least" }
+    return [milestones, nil] unless acquire_at && earn_at && earn_at > acquire_at
+
+    earner = milestones[earn_at]
+    reordered = ([earner] + (milestones - [earner]))
+    [reordered,
+     "reordered: #{earner['milestone'].inspect} moved ahead of " \
+     "#{milestones[acquire_at]['milestone'].inspect} — #{gold} gold can't buy anything yet"]
+  end
+
   # Returns [kept_milestones, notes].
   def validate_plan(milestones, state, baseline)
     kept  = []
@@ -445,6 +517,10 @@ module Plan
 
       kept << m
     end
+
+    # Last: straighten earn-before-buy, once the unverifiable milestones are gone.
+    kept, note = repair_order(kept, state)
+    notes << note if note
 
     [kept, notes]
   end
@@ -547,7 +623,8 @@ module Plan
                   "further progress. Treat it as unreachable AS WRITTEN: drop it, or replace it " \
                   "with a different route to the same end."
           revised = begin
-            r = replan!(goal, st, m, reply, plan["milestones"].first(i).map { |mm| mm["milestone"] })
+            r = replan!(goal, st, m, reply, plan["milestones"].first(i).map { |mm| mm["milestone"] },
+                        attempt_history(plan))
                   .map { |mm| mm.merge("status" => "pending") }
             r, vn = validate_plan(r, st, base)
             vn.each { |n| puts "   · #{n}" }
@@ -562,7 +639,9 @@ module Plan
             plan["current"]    = i
             plan["baseline"]   = nil
             plan["replans"]    = plan["replans"].to_i + 1
-            plan["progress"] << "REPLANNED after #{runs} failed runs on #{m['milestone'].inspect}."
+            plan["progress"] << "REPLANNED after #{runs} failed runs on #{m['milestone'].inspect} " \
+                                "[at the time: L#{st[:level]} #{st[:xp]}xp #{st[:gold].to_i} gold]. " \
+                                "That plan ordered them: #{plan['milestones'].drop(i).first(4).map { |mm| mm['milestone'] }.join(' → ')}"
             save(plan)
             puts "   ↻ new plan (replan #{plan['replans']}/#{replan_budget(plan)}):"
             revised.each_with_index { |mm, j| puts "     #{i + j + 1}. #{mm['milestone']}  [#{mm['done_check'].to_json}]" }
@@ -611,7 +690,8 @@ module Plan
         puts "     executor said: #{reply.to_s.lines.first(2).join(' ').strip[0, 160]}"
         done_so_far = plan["milestones"].first(i).map { |mm| mm["milestone"] }
         begin
-          revised = replan!(goal, st2, m, reply, done_so_far).map { |mm| mm.merge("status" => "pending") }
+          revised = replan!(goal, st2, m, reply, done_so_far, attempt_history(plan))
+                      .map { |mm| mm.merge("status" => "pending") }
           revised, vnotes = validate_plan(revised, st2, base)
           vnotes.each { |n| puts "   · #{n}" }
           if revised.empty?
@@ -628,7 +708,9 @@ module Plan
         plan["current"]    = i
         plan["baseline"]   = nil
         plan["replans"]    = plan["replans"].to_i + 1
-        plan["progress"] << "REPLANNED around blocker on #{m['milestone'].inspect}."
+        plan["progress"] << "REPLANNED around blocker on #{m['milestone'].inspect} " \
+                            "[at the time: L#{st2[:level]} #{st2[:xp]}xp #{st2[:gold].to_i} gold]. " \
+                            "That plan ordered them: #{plan['milestones'].drop(i).first(4).map { |mm| mm['milestone'] }.join(' → ')}"
         save(plan)
         puts "   ↻ new plan (replan #{plan['replans']}/#{replan_budget(plan)}):"
         revised.each_with_index { |mm, j| puts "     #{i + j + 1}. #{mm['milestone']}  [#{mm['done_check'].to_json}]" }

@@ -1,0 +1,33 @@
+# Boukensha config for playing the MUD as Hectic — a COLD-START character.
+#
+# Hectic is the control case for Perry: a brand-new male Warrior who has never
+# been in the world. Nothing here (and nothing in prompts/system.md) tells him
+# where anything is — no zone index, no shop locations, no map. The world.json
+# in this directory starts absent, so his map is genuinely blank and fills in
+# only from what he walks.
+#
+# Point the runtime here:
+#   BOUKENSHA_DIR=<repo>/characters/hectic/.boukensha
+
+mud:
+  host: localhost
+  port: 4000
+  username: tarn
+  password: granite
+  class: warrior  # no class-specific tools registered yet (only `thief` has a
+                  # branch in Tools::Mud.register_class_tools) — Hectic plays on
+                  # the generic, class-agnostic tool set.
+
+tasks:
+  player:
+    provider: anthropic
+    model: claude-haiku-4-5
+
+system:
+  override: true          # use prompts/system.md as the full system prompt
+
+agent:
+  max_iterations: 40      # tool calls allowed per player turn
+  max_output_tokens: 1024
+  max_turn_tokens: 120000
+  compaction_threshold: 0.85
