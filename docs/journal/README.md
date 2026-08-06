@@ -2,8 +2,8 @@
 
 > **Looking for the project itself?** Start at **[00_summary.md](./00_summary.md)** — the
 > overview and ordered chapter list for the **boukensha** MUD-agent journey (baseline →
-> navigation → combat → planning → the minotaur capstone). This file below just documents the
-> required journal *format* every chapter follows.
+> navigation → combat → planning → the minotaur capstone → cold-start control experiment).
+> This file below just documents the required journal *format* every chapter follows.
 
 In this bootcamp you are expected to produce technical documentation.
 This is help to document gained technical domain knowledge.
