@@ -131,6 +131,14 @@ module Plan
          character can level is out of order, and the guildmaster must be FOUND first.
     Never schedule a milestone whose prerequisite comes later in the plan.
 
+    FINDING SOMEWHERE IS NOT A MILESTONE. "Find the shop that sells X", "locate the
+    guild", "find a hunting ground" are HOW the executor accomplishes the next step —
+    it has seek/explore and does the searching itself. Write the milestone that OWNS
+    the outcome ("buy X" with has_item, "train Y" with skill_trained) and let the search
+    happen inside it. Only use at_place when ARRIVING somewhere is genuinely the goal,
+    and only for a room in the MAP list above — a name that is not there cannot be
+    checked, so the milestone can never complete.
+
     CRITICAL: milestones are CHECKPOINTS — real, verifiable progress markers — not
     individual tool calls. The executor already sequences the fine-grained tools on its
     own (finding a mob, healing, retrying, chasing) WITHIN a milestone. So:
@@ -381,6 +389,66 @@ module Plan
     pattern ? !!(items =~ pattern) : false
   end
 
+  # ---- plan validation: check the CHECKS before spending runs on them --------
+  #
+  # A plan is a set of assertions about what is verifiable. Nothing tested those
+  # assertions, so an unverifiable one cost four executor runs to discover — the
+  # planner asked three separate times to reach a room called "Teleporter", which
+  # does not exist (the vendor is in the Reading Room), and once for gold_at_least 57
+  # from a character holding exactly 57.
+  #
+  # Same failure the tool layer had, one storey up: asserting something without
+  # checking it. So every done_check must be EVALUABLE NOW and NOT ALREADY TRUE
+  # before the plan is accepted. Repair in place where we can; only the empty-plan
+  # case goes back to the planner.
+  #
+  # Returns [kept_milestones, notes].
+  def validate_plan(milestones, state, baseline)
+    kept  = []
+    notes = []
+
+    milestones.each do |m|
+      check = m["done_check"] || {}
+      label = m["milestone"].to_s
+
+      # 1. Already satisfied → no run needed. Advance past it silently.
+      if done?(check, state, baseline)
+        notes << "dropped (already true): #{label.inspect}"
+        next
+      end
+
+      case check["type"]
+      when "at_place"
+        # FINDING SOMEWHERE IS NOT A CHECKPOINT — it is how the executor accomplishes
+        # the milestone that follows, and `seek`/`explore` already do it. An at_place
+        # naming a room we have never mapped is the planner expressing an instrumental
+        # step as a terminal one; drop it and let the next milestone's real check
+        # (has_item / xp / skill) carry the goal, with the search folded inside.
+        name = check["name"].to_s.downcase.strip
+        if name.empty? || known_places(1000).none? { |p| p.downcase.include?(name) }
+          notes << "dropped (no mapped room matches #{check['name'].inspect}; the executor will find it while doing the next step): #{label.inspect}"
+          next
+        end
+      when "skill_trained"
+        # Can't verify training a skill the character does not know of.
+        sk = check["skill"].to_s.downcase
+        unless state[:skills].key?(sk)
+          notes << "dropped (#{check['skill'].inspect} is not a skill this character knows): #{label.inspect}"
+          next
+        end
+      when "xp_at_least", "level_at_least", "gold_at_least", "has_item"
+        # Evaluable by construction; the already-true test above covers the rest.
+      else
+        notes << "dropped (unknown done_check type #{check['type'].inspect}): #{label.inspect}"
+        next
+      end
+
+      kept << m
+    end
+
+    [kept, notes]
+  end
+
   # ---- deterministic milestone completion check -----------------------------
   def done?(check, state, baseline)
     case check["type"]
@@ -437,7 +505,12 @@ module Plan
     unless plan
       st = read_state
       puts "== PLANNING (#{PLANNER}) =="
-      milestones = plan!(goal, st).map { |m| m.merge("status" => "pending") }
+      raw_ms = plan!(goal, st).map { |m| m.merge("status" => "pending") }
+      milestones, vnotes = validate_plan(raw_ms, st, { skills: st[:skills] || {}, sessions: st[:sessions] })
+      vnotes.each { |n| puts "   · #{n}" }
+      if milestones.empty?
+        puts "   · every milestone was already satisfied or unverifiable — nothing to do."
+      end
       plan = { "goal" => goal, "milestones" => milestones, "current" => 0,
                "progress" => [], "baseline" => nil, "replans" => 0 }
       save(plan)
@@ -474,8 +547,11 @@ module Plan
                   "further progress. Treat it as unreachable AS WRITTEN: drop it, or replace it " \
                   "with a different route to the same end."
           revised = begin
-            replan!(goal, st, m, reply, plan["milestones"].first(i).map { |mm| mm["milestone"] })
-                      .map { |mm| mm.merge("status" => "pending") }
+            r = replan!(goal, st, m, reply, plan["milestones"].first(i).map { |mm| mm["milestone"] })
+                  .map { |mm| mm.merge("status" => "pending") }
+            r, vn = validate_plan(r, st, base)
+            vn.each { |n| puts "   · #{n}" }
+            r.empty? ? nil : r
           rescue StandardError => e
             puts "   ✗ replan failed (#{e.message.lines.first.to_s.strip}) — escalating."
             nil
@@ -536,6 +612,12 @@ module Plan
         done_so_far = plan["milestones"].first(i).map { |mm| mm["milestone"] }
         begin
           revised = replan!(goal, st2, m, reply, done_so_far).map { |mm| mm.merge("status" => "pending") }
+          revised, vnotes = validate_plan(revised, st2, base)
+          vnotes.each { |n| puts "   · #{n}" }
+          if revised.empty?
+            puts "   ✗ replan produced nothing verifiable — escalating."
+            m["status"] = "blocked"; save(plan); break
+          end
         rescue StandardError => e
           puts "   ✗ replan failed (#{e.message}) — escalating."
           m["status"] = "blocked"; save(plan); break

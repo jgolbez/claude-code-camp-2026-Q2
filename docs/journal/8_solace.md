@@ -112,12 +112,55 @@ calling a successful move blocked — one storey up.
   `known_places` still truncates at 40 rooms; fountain refills are still not preferred
   over purchases.
 
+## Postscript — plan validation, and an honest accounting
+
+Two more defects surfaced after the main run, both the same shape: the planner asserting
+a checkpoint nothing could evaluate. It asked three separate times to reach a room called
+**"Teleporter"** (no such room — the vendor is in the Reading Room), and once for
+`gold_at_least 57` from a character holding exactly 57.
+
+The fix is the tool layer's lesson one storey up — **verify at the boundary**. Every
+`done_check` must now be *evaluable now* and *not already true* before a plan is accepted;
+anything else is dropped, and an empty result bounces back to the planner. The deeper rule
+went into the planner's contract: **finding somewhere is not a milestone.** "Find the shop
+that sells X" is *how* you accomplish "own X" — the executor has `seek`/`explore` for that.
+Write the milestone that owns the outcome and let the search happen inside it.
+
+That worked as prevention rather than repair: the next plan came back as two terminal,
+verifiable milestones with nothing for the validator to drop, and completed with **zero
+interventions** — Solace reached **level 2 (2582 xp, 157 gold, 25 HP)** and bought the
+teleporter.
+
+**But that run does not prove much, and it should not be read as an acceptance test.**
+She began it already equipped, fed, watered, solvent, on a map she had built, with a goal
+that amounted to "buy something you can afford" and "hunt where you have already hunted".
+It was an easy run from an advantaged position.
+
+The honest accounting across both characters:
+
+| | Runs | Interventions |
+|---|---|---|
+| Hectic | 10 | 8 |
+| Solace | 9 | 9 |
+
+**The intervention rate did not fall.** What changed was *where* the defects live, not how
+many there are. That is worth something — eight tool-layer defects found on a Warrior, and
+**zero of them recurred** for a Cleric with a different combat profile, fewer hit points,
+and a goal type never run before. The tool layer generalised, on a fair test it did not
+know was coming.
+
+What is **not** established is that a character can go from nothing to a compound goal
+without a human in the loop. Neither character did that. The only thing that would settle
+it is a third cold start, untouched, judged pass/fail — and the reasonable expectation is
+that it finds more planning defects, because that layer has had one session of exposure
+against the tool layer's several weeks.
+
 ## Result
 
-**723 xp, 57 gold, fully equipped, fed, watered, zero deaths** — four of five goal parts
-done. The fifth needed 12 of her 57 gold; she simply could not get out of the sewer to
-spend it.
+**723 xp → level 2, 2582 xp, 157 gold, a teleporter, zero deaths.** Four of five parts of
+the original compound goal, then the fifth closed in a follow-up run.
 
-Seven interventions, seven new defects, **none of them Hectic's, and none of them in the
-tools**. The character-facing harness is solid. The plumbing above it — the layer that
-turns a sentence into checkable milestones — is where the work now is.
+Seven interventions during the main run, nine in total, **none of them Hectic's and none
+of them in the tools**. The character-facing harness held. The plumbing above it — the
+layer that turns a sentence into checkable milestones — is where the work now is, and it
+has not yet been tested by anything that did not have a human watching it.
