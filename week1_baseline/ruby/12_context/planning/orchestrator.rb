@@ -22,13 +22,35 @@ module Plan
   CHAR_NAME   = (CFG.mud_username || "the character").capitalize
   CHAR_CLASS  = (CFG.mud_class || "adventurer").capitalize
   PLANNER     = "claude-sonnet-5"
+  # The planner emits a whole JSON plan in ONE response, so it needs far more output
+  # room than the executor's short per-turn replies. Inheriting the executor's
+  # `agent.max_output_tokens` (1024) truncated a five-milestone plan mid-string —
+  # the JSON never closed its bracket and planning died with "returned no JSON".
+  # Compound goals ("get equipped, find X, earn money, provision, buy Y") are exactly
+  # the case that overflows it.
+  PLANNER_MAX_TOKENS = 4096
   EXECUTOR    = "claude-haiku-4-5"
   MAX_RUNS_PER_MILESTONE = 4
   # Replanning is the recovery path, but it must terminate: a goal that is genuinely
   # impossible would otherwise loop forever, replanning around a wall that never moves.
-  MAX_REPLANS = 3
+  #
+  # Scaled to the GOAL, not fixed: a five-part compound goal ("get equipped, find the
+  # zone, earn money, provision, buy a teleporter") legitimately needs more course
+  # corrections than "go kill things". A flat 3 stranded a character with 44 gold in
+  # hand and two milestones left, having spent every replan on things the planner
+  # could not have known (prices, a light it already owned).
+  MIN_REPLANS = 3
+  MAX_REPLANS_CAP = 8
 
   module_function
+
+  # One replan per milestone in the ORIGINAL plan, within bounds. (Defined AFTER
+  # `module_function` on purpose — above it, this is only an instance method and
+  # `Plan.orchestrate` would NoMethodError the moment a blocker appeared.)
+  def replan_budget(plan)
+    n = (plan["milestones"] || []).size
+    [[n, MIN_REPLANS].max, MAX_REPLANS_CAP].min
+  end
 
   def c(t) = t.to_s.gsub(/\e\[[0-9;?]*[ -\/]*[@-~]/, "")
 
@@ -40,6 +62,12 @@ module Plan
     score = c(reg.dispatch("check", { "kind" => "score" }))
     prac  = Boukensha::Skills.parse_practice(reg.dispatch("practice", {}))
     loc   = c(reg.dispatch("look", {})).lines.first.to_s.strip
+    # What the character is CARRYING and WEARING. Without this, `has_item` done_checks
+    # could never be verified — they were hardcoded to false, so an entire provisioning
+    # plan (buy armour / weapon / food / water / teleporter) was unsatisfiable by
+    # construction: the character could own every item and still never tick a milestone.
+    items = c(reg.dispatch("check", { "kind" => "inventory" })).to_s +
+            "\n" + c(reg.dispatch("check", { "kind" => "equipment" })).to_s
     # Quit CLEANLY, not just disconnect: a bare disconnect would leave Perry
     # link-dead in whatever room this read touched. mud_quit saves + extracts him
     # (login restores his position), so these frequent state reads never leave an
@@ -49,9 +77,11 @@ module Plan
       level:     score[/\(level\s+(\d+)\)/i, 1]&.to_i,
       xp:        score[/have\s+(\d+)\s+exp/i, 1]&.to_i,
       hp:        score[/(\d+)\(\d+\)\s+hit/i, 1]&.to_i,
+      gold:      score[/(\d+)\s+gold\s+coins/i, 1]&.to_i,
       location:  loc,
       sessions:  prac[:sessions],
-      skills:    prac[:skills]
+      skills:    prac[:skills],
+      items:     items.downcase
     }
   end
 
@@ -74,9 +104,32 @@ module Plan
     done_check MUST be one of:
       { "type":"xp_at_least",    "value": <int> }
       { "type":"level_at_least", "value": <int> }
+      { "type":"gold_at_least",  "value": <int> }
       { "type":"at_place",       "name": "<room name substring>" }
       { "type":"skill_trained",  "skill": "<skill>" }
       { "type":"has_item",       "name": "<item substring>" }
+
+    Match the check to the goal. Money goals use gold_at_least with the ACTUAL price —
+    a 12-coin item needs 12 coins, not "reach level 5". Acquisition goals use has_item
+    with a short distinctive substring ("sword", "canteen", "teleporter"), never a
+    level as a proxy.
+
+    YOU DO NOT KNOW PRICES until something reports one. Never plan a purchase the
+    character cannot currently afford — if the gold on hand looks thin, put an
+    EARNING milestone (gold_at_least) in front of the purchase rather than hoping.
+    When a report below tells you what something actually cost, use that number.
+
+    ORDER OF OPERATIONS — plan for survival first. A new character is naked, broke and
+    fragile, and the cheap fixes come before the expensive ones:
+      1. GEAR UP first. A wielded weapon and worn armour change what is survivable more
+         than anything else, and a newcomer can be outfitted for free before spending a
+         coin. Never send an unarmed character out to explore or fight.
+      2. LIGHT, FOOD and WATER next. Unlit rooms cannot be seen or mapped — that is how
+         characters get lost in the dark — and hunger/thirst block healing.
+      3. THEN hunt, to earn xp and gold.
+      4. TRAIN LAST. Practice sessions are earned by LEVELLING, so training before the
+         character can level is out of order, and the guildmaster must be FOUND first.
+    Never schedule a milestone whose prerequisite comes later in the plan.
 
     CRITICAL: milestones are CHECKPOINTS — real, verifiable progress markers — not
     individual tool calls. The executor already sequences the fine-grained tools on its
@@ -102,11 +155,30 @@ module Plan
     []
   end
 
+  # The item lines a planner needs, condensed: what is worn/wielded and what is carried.
+  # Without this the planner re-schedules gear the character is ALREADY wearing ("buy
+  # armor" for someone in a breast plate) and plans purchases for someone with no money.
+  # It also lets it pick has_item substrings that MATCH the real item names — "armor"
+  # never matches "a breast plate", so a guessed noun makes an untickable milestone.
+  def owned_summary(state)
+    lines = state[:items].to_s.lines.map(&:strip).reject(&:empty?)
+    worn    = lines.grep(/\A<[^>]+>/).map { |l| l.sub(/\A<([^>]+)>\s*/) { "#{$1}: " } }
+    carried = lines.reject { |l| l =~ /\A<[^>]+>/ || l =~ /you are (using|carrying)/i || l =~ /\Anothing\.?\z/i }
+    { worn: worn, carried: carried }
+  end
+
   def state_block(state)
     places = known_places
+    own    = owned_summary(state)
     <<~S.strip
-      #{CHAR_NAME} now: level #{state[:level]}, #{state[:xp]} exp, at #{state[:location]},
-      #{state[:sessions]} practice session(s), skills #{state[:skills].empty? ? '(none trained)' : state[:skills].map { |k, v| "#{k} (#{v})" }.join(', ')}.
+      #{CHAR_NAME} now: level #{state[:level]}, #{state[:xp]} exp, #{state[:gold].to_i} GOLD COINS,
+      at #{state[:location]}, #{state[:sessions]} practice session(s),
+      skills #{state[:skills].empty? ? '(none trained)' : state[:skills].map { |k, v| "#{k} (#{v})" }.join(', ')}.
+      WEARING/WIELDING: #{own[:worn].empty? ? '(nothing — unarmed and unarmoured)' : own[:worn].join('; ')}
+      CARRYING: #{own[:carried].empty? ? '(nothing)' : own[:carried].join('; ')}
+      Do NOT plan to acquire something already listed above, and do NOT plan a purchase
+      costing more than #{state[:gold].to_i} gold — earn the coin first. When you use
+      has_item, take the substring from the item names above so the check can match.
       MAP — the #{places.size} place(s) #{CHAR_NAME} has actually found so far:
       #{places.empty? ? '(nothing mapped yet — everywhere is unknown)' : places.join('; ')}
       Anywhere NOT in that list has not been found yet and cannot simply be travelled to.
@@ -119,9 +191,78 @@ module Plan
       #{state_block(state)}
       Produce the milestone plan (JSON only).
     T
-    raw  = Boukensha.run(task: task, system: PLANNER_SYSTEM, model: PLANNER, mud: false, working_dir: false)
-    json = raw[/\[.*\]/m] or raise "planner returned no JSON:\n#{raw}"
+    raw  = Boukensha.run(task: task, system: PLANNER_SYSTEM, model: PLANNER, mud: false, working_dir: false,
+                         max_output_tokens: PLANNER_MAX_TOKENS)
+    parse_plan(raw, "planner")
+  end
+
+  # Pull the milestone array out of a planner reply, and say something USEFUL when it
+  # isn't there. The failure that motivated this was a silently TRUNCATED response —
+  # valid JSON as far as it went, no closing bracket — reported only as "returned no
+  # JSON" with a wall of text. Distinguish "ran out of room" from "wrote prose".
+  # Pull the FIRST balanced JSON array out of a reply. A greedy /\[.*\]/m match was
+  # wrong: it spans from the first "[" ANYWHERE in the text to the last "]", so a
+  # bracket in prose (or a ```json fence) makes the match start mid-object and the
+  # parse fails on valid output. Scan with a depth counter instead, and respect
+  # string literals so a "[" inside a milestone description can't throw the count off.
+  def extract_json_array(raw)
+    text = raw.to_s.gsub(/```(?:json)?/i, "")
+    # Try EVERY "[" as a candidate start, not just the first: prose like
+    # "use tools [hunt] first" opens a bracket that closes into "[hunt]", which is
+    # not the plan. Take the first candidate that parses into an array of milestones.
+    text.each_char.with_index.select { |ch, _| ch == "[" }.each do |_, start|
+      span = balanced_span(text, start)
+      next unless span
+      parsed = begin
+        JSON.parse(span)
+      rescue JSON::ParserError
+        nil
+      end
+      return span if parsed.is_a?(Array) && parsed.all? { |m| m.is_a?(Hash) } && !parsed.empty?
+    end
+    nil
+  end
+
+  # The substring from `start` (a "[") through its matching "]", or nil if unclosed.
+  # String-aware, so a bracket inside a milestone description can't skew the depth.
+  def balanced_span(text, start)
+    depth = 0
+    in_str = false
+    escaped = false
+    text[start..].each_char.with_index do |ch, i|
+      if in_str
+        if escaped       then escaped = false
+        elsif ch == "\\" then escaped = true
+        elsif ch == '"'  then in_str = false
+        end
+        next
+      end
+      case ch
+      when '"' then in_str = true
+      when "[" then depth += 1
+      when "]"
+        depth -= 1
+        return text[start, i + 1] if depth.zero?
+      end
+    end
+    nil
+  end
+
+  def parse_plan(raw, who)
+    json = extract_json_array(raw)
+    unless json
+      hint = if raw.to_s.include?("[")
+               "the reply STARTS a JSON array but never closes it — almost certainly " \
+               "truncated by the output-token limit (currently #{PLANNER_MAX_TOKENS}). " \
+               "Raise PLANNER_MAX_TOKENS or ask for fewer milestones."
+             else
+               "the reply contains no JSON array at all — the #{who} wrote prose instead."
+             end
+      raise "#{who} returned no usable plan: #{hint}\n--- reply ---\n#{raw.to_s[0, 800]}"
+    end
     JSON.parse(json)
+  rescue JSON::ParserError => e
+    raise "#{who} returned malformed JSON (#{e.message}):\n#{json.to_s[0, 800]}"
   end
 
   # ---- REPLAN: a blocker is information, not a reason to retry ----------------
@@ -154,9 +295,9 @@ module Plan
         - Do not re-issue the stalled milestone unchanged.
       Output ONLY the JSON array, no prose.
     T
-    raw  = Boukensha.run(task: task, system: PLANNER_SYSTEM, model: PLANNER, mud: false, working_dir: false)
-    json = raw[/\[.*\]/m] or raise "replanner returned no JSON:\n#{raw}"
-    JSON.parse(json)
+    raw  = Boukensha.run(task: task, system: PLANNER_SYSTEM, model: PLANNER, mud: false, working_dir: false,
+                         max_output_tokens: PLANNER_MAX_TOKENS)
+    parse_plan(raw, "replanner")
   end
 
   # Did the run move the milestone FORWARD? Deterministic, no text heuristics — but
@@ -176,11 +317,23 @@ module Plan
     case check && check["type"]
     when "xp_at_least", "level_at_least"
       after[:xp].to_i > before[:xp].to_i || after[:level].to_i > before[:level].to_i
+    when "gold_at_least"
+      # Money milestones are measured in MONEY. This used to fall through to the
+      # permissive branch, where mapping a few rooms counted as "progress" — so a
+      # character could wander for four runs earning nothing and never trigger the
+      # replan that would have sent it somewhere with coin.
+      after[:gold].to_i > before[:gold].to_i
     when "skill_trained"
       after[:skills] != before[:skills] || after[:sessions].to_i != before[:sessions].to_i
     when "at_place"
       # Getting somewhere is navigation: moving OR mapping new ground is progress.
       after[:location].to_s != before[:location].to_s || !!mapped_more
+    when "has_item"
+      # Acquiring something means the INVENTORY changed, or we found new ground while
+      # looking for the shop. Pacing between rooms already on the map is not progress —
+      # that let a character shuttle Temple ↔ Temple Square for four runs, "progressing"
+      # every time, until the run budget ran out.
+      after[:items].to_s != before[:items].to_s || !!mapped_more
     else
       # Unknown/has_item: fall back to "did anything at all move", map included.
       after[:xp].to_i > before[:xp].to_i ||
@@ -201,13 +354,43 @@ module Plan
     0
   end
 
+  # A planner naming an item it has never seen must GUESS the in-game noun, and the
+  # guess is usually the category ("water", "food") while the game hands you "a cup"
+  # and "a danish pastry". A literal substring match then fails on a milestone the
+  # character actually completed — Solace bought both, spent 37 gold, and the plan
+  # aborted anyway. So: exact match first, then fall back to the category the word
+  # names. Deliberately generous — a false "yes" costs one skipped milestone, a false
+  # "no" burns the whole run budget on something already done.
+  ITEM_CATEGORIES = {
+    # Any container noun means "get me something to drink from" — the shop may sell a
+    # cup where the planner guessed canteen.
+    /\A(?:water|drink|liquid|waterskin|canteen|bottle|flask|jug|cup)\z/ => /waterskin|flask|canteen|bottle|jug|cup|skin\b/,
+    /\A(?:food|rations?|provisions?|bread)\z/ => /bread|loaf|waybread|ration|biscuit|hardtack|cheese|apple|banana|fruit|pastry|danish|pie|cake/,
+    /\A(?:light|lamp|torch|candle)\z/         => /candle|torch|lantern|lamp|glowing/,
+    /\A(?:weapon|blade)\z/                    => /sword|dagger|mace|club|axe|spear|staff|blade|hammer|flail|knife|whip/,
+    /\A(?:armou?r|armour)\z/                  => /armou?r|plate|mail|shield|helm|cap\b|leggings|boots|gloves|sleeves|gorget|vest|wristguard/
+  }.freeze
+
+  def has_item?(state, name)
+    items = state[:items].to_s
+    want  = name.to_s.downcase.strip
+    return false if want.empty?
+    return true if items.include?(want)
+
+    _, pattern = ITEM_CATEGORIES.find { |word_re, _| want =~ word_re }
+    pattern ? !!(items =~ pattern) : false
+  end
+
   # ---- deterministic milestone completion check -----------------------------
   def done?(check, state, baseline)
     case check["type"]
     when "xp_at_least"    then state[:xp] && state[:xp]    >= check["value"].to_i
     when "level_at_least" then state[:level] && state[:level] >= check["value"].to_i
     when "at_place"       then state[:location].to_s.downcase.include?(check["name"].to_s.downcase)
-    when "has_item"       then false # (executor-reported; not read here)
+    when "gold_at_least"  then state[:gold].to_i >= check["value"].to_i
+    # Matches carried OR worn/wielded — "buy a sword" is satisfied by a sword in hand
+    # just as much as one in the pack.
+    when "has_item"       then has_item?(state, check["name"])
     when "skill_trained"
       sk = check["skill"].to_s.downcase
       Boukensha::Skills.proficiency_rank(state[:skills][sk]) >
@@ -281,7 +464,36 @@ module Plan
 
       runs = (m["runs"] || 0)
       if runs >= MAX_RUNS_PER_MILESTONE
-        puts "   ✗ #{runs} runs without completing — escalating (stopping this demo)."
+        # "Failed four times" is a BLOCKER report like any other — the right answer is
+        # to plan around it, not to throw away the remaining milestones. Aborting here
+        # stranded a character with a full pack and six untouched steps, while most of
+        # the replan budget sat unused. Only stop once replanning is also exhausted.
+        if plan["replans"].to_i < replan_budget(plan)
+          puts "   ✗ #{runs} runs without completing — replanning around it instead of stopping."
+          reply = "This milestone ran #{runs} times without satisfying its done_check and made no " \
+                  "further progress. Treat it as unreachable AS WRITTEN: drop it, or replace it " \
+                  "with a different route to the same end."
+          revised = begin
+            replan!(goal, st, m, reply, plan["milestones"].first(i).map { |mm| mm["milestone"] })
+                      .map { |mm| mm.merge("status" => "pending") }
+          rescue StandardError => e
+            puts "   ✗ replan failed (#{e.message.lines.first.to_s.strip}) — escalating."
+            nil
+          end
+          if revised
+            m["status"]        = "superseded"
+            plan["milestones"] = plan["milestones"].first(i) + revised
+            plan["current"]    = i
+            plan["baseline"]   = nil
+            plan["replans"]    = plan["replans"].to_i + 1
+            plan["progress"] << "REPLANNED after #{runs} failed runs on #{m['milestone'].inspect}."
+            save(plan)
+            puts "   ↻ new plan (replan #{plan['replans']}/#{replan_budget(plan)}):"
+            revised.each_with_index { |mm, j| puts "     #{i + j + 1}. #{mm['milestone']}  [#{mm['done_check'].to_json}]" }
+            next
+          end
+        end
+        puts "   ✗ #{runs} runs without completing and no replan budget left — stopping."
         m["status"] = "blocked"; save(plan); break
       end
       m["runs"] = runs + 1; save(plan)
@@ -313,7 +525,7 @@ module Plan
         # Moved toward THIS milestone — it's simply unfinished. Re-run it.
         mapped = rooms_after > rooms_before ? ", +#{rooms_after - rooms_before} rooms mapped" : ""
         puts "   … not done yet (L#{st2[:level]} #{st2[:xp]}xp#{mapped}); progress made, will re-run."
-      elsif plan["replans"].to_i >= MAX_REPLANS
+      elsif plan["replans"].to_i >= replan_budget(plan)
         puts "   ✗ stuck, and already replanned #{plan['replans']}× — escalating (stopping)."
         m["status"] = "blocked"; save(plan); break
       else
@@ -336,7 +548,7 @@ module Plan
         plan["replans"]    = plan["replans"].to_i + 1
         plan["progress"] << "REPLANNED around blocker on #{m['milestone'].inspect}."
         save(plan)
-        puts "   ↻ new plan (replan #{plan['replans']}/#{MAX_REPLANS}):"
+        puts "   ↻ new plan (replan #{plan['replans']}/#{replan_budget(plan)}):"
         revised.each_with_index { |mm, j| puts "     #{i + j + 1}. #{mm['milestone']}  [#{mm['done_check'].to_json}]" }
       end
     end

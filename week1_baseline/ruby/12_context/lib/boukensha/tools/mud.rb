@@ -1161,8 +1161,13 @@ module Boukensha
           # swinging bare fists: loot vanishes into the inventory unannounced.
           loot_note = ""
           if killed
-            got  = MudText.strip_ansi(send_cmd.call(p.get("all", container: "corpse")).to_s)
-            got += "\n" + MudText.strip_ansi(send_cmd.call(p.get("coins", container: "corpse")).to_s)
+            # `all.corpse` sweeps EVERY corpse in the room, not just the first one the
+            # parser happens to match (CircleMUD handler.c: find_all_dots → FIND_ALLDOT).
+            # Plain "corpse" left earlier kills — and a chase that ends in a room with
+            # several bodies — unlooted, which matters when most corpses are empty and
+            # the coin has to come from somewhere.
+            got  = MudText.strip_ansi(send_cmd.call(p.get("all", container: "all.corpse")).to_s)
+            got += "\n" + MudText.strip_ansi(send_cmd.call(p.get("coins", container: "all.corpse")).to_s)
             items = got.scan(/you get\s+(.+?)\s+from\s+(?:the\s+)?corpse/i).flatten
                        .map { |s| s.strip.sub(/\.$/, "") }.reject(&:empty?).uniq
             loot_note =
@@ -1978,7 +1983,19 @@ module Boukensha
             # failure mode). Earning gold is a separate, agent-driven task.
             if action.to_s =~ /buy/i &&
                MudText.strip_ansi(result.to_s) =~ /can'?t afford|don'?t have (?:enough|that much)|not enough (?:gold|money)|too poor/i
-              result = "#{result}\n→ You can't afford that — retrying the same buy will keep failing. Getting gold is a SEPARATE task: `money withdraw` if you have savings, `sell` spare gear here, or hunt mobs for coin, then come back. Provision only what you CAN afford, and don't loop."
+              # Report the actual PRICE, not just "can't afford". Nothing upstream knows
+              # what anything costs, so a planner keeps scheduling purchases it can't
+              # size — the only way it learns "a bottle is 12 coins" is if we say so.
+              price = begin
+                listing = MudText.strip_ansi(send_cmd.call(p.shop("list")).to_s)
+                want    = args.to_s.strip.downcase
+                row     = listing.lines.find { |l| want.split.any? { |w| w.length > 2 && l.downcase.include?(w) } }
+                row && row[/(\d+)\s*$/, 1]
+              rescue StandardError
+                nil
+              end
+              cost = price ? " It costs #{price} gold — you need at least that much." : ""
+              result = "#{result}\n→ You can't afford that.#{cost} Retrying the same buy will keep failing. Getting gold is a SEPARATE task: `money withdraw` if you have savings, `sell` spare gear here, or hunt mobs for coin, then come back. Provision only what you CAN afford, and don't loop."
             end
             result
           rescue ArgumentError => e

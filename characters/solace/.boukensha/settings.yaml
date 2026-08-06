@@ -1,0 +1,35 @@
+# Boukensha config for playing the MUD as Solace — the SECOND cold-start character.
+#
+# Hectic (characters/hectic) was the first cold start, and debugging him surfaced
+# eight harness defects. Solace is the regression test for those fixes: a brand-new
+# character on the repaired harness, run WITHOUT the stop-and-fix cycle. The measure
+# is how many human interventions she needs, not merely whether she succeeds.
+#
+# She is a CLERIC on purpose. Only `thief` has class-specific tools, so a caster
+# exercises the generic, class-agnostic tool set on a combat profile nothing has
+# tested — and has spells (`armor`, `cure light`) the harness has never used.
+#
+# Point the runtime here:
+#   BOUKENSHA_DIR=<repo>/characters/solace/.boukensha
+
+mud:
+  host: localhost
+  port: 4000
+  username: solace
+  password: chalice
+  class: cleric   # no class-specific tools exist for cleric — she runs entirely on
+                  # the generic set (see Tools::Mud.register_class_tools).
+
+tasks:
+  player:
+    provider: anthropic
+    model: claude-haiku-4-5
+
+system:
+  override: true          # use prompts/system.md as the full system prompt
+
+agent:
+  max_iterations: 40      # tool calls allowed per player turn
+  max_output_tokens: 1024
+  max_turn_tokens: 120000
+  compaction_threshold: 0.85
